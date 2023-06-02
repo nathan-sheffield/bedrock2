@@ -12,6 +12,9 @@ Notation "'bind_ex' x <- a ; f" :=
   (only parsing, right associativity, at level 60, f at level 200).
 Notation "'bind_ex_Some' x <- a ; f" :=
   (subst! a for a' in exists x, a' = Some x /\ f)
+    (only parsing, right associativity, at level 60, f at level 200).
+Notation "'bind_ex_pair' ( x , y ) <- a ; f" :=
+  (subst! a for a' in exists x y, a' (x, y) /\ f)
   (only parsing, right associativity, at level 60, f at level 200).
 Notation "'bind_eq' x <- a ; f" :=
   (subst! a for a' in forall x, x = a' -> f)

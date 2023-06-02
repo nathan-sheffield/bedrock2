@@ -233,14 +233,14 @@ Ltac straightline :=
     lazymatch goal with |- if ?test then ?T else _ =>
       replace test with true by reflexivity; change T end;
     cbv match beta delta [WeakestPrecondition.func]
-  | |- WeakestPrecondition.cmd _ (cmd.set ?s ?e) _ _ _ ?post =>
+  | |- WeakestPrecondition.cmd _ (cmd.set ?s ?e) _ _ _ _ ?post =>
     unfold1_cmd_goal; cbv beta match delta [cmd_body];
     let __ := match s with String.String _ _ => idtac | String.EmptyString => idtac end in
     ident_of_constr_string_cps s ltac:(fun x =>
       ensure_free x;
       (* NOTE: keep this consistent with the [exists _, _ /\ _] case far below *)
       letexists _ as x; split; [solve [repeat straightline]|])
-  | |- cmd _ ?c _ _ _ ?post =>
+  | |- cmd _ ?c _ _ _ _ ?post =>
     let c := eval hnf in c in
     lazymatch c with
     | cmd.while _ _ => fail
@@ -248,15 +248,15 @@ Ltac straightline :=
     | cmd.interact _ _ _ => fail
     | _ => unfold1_cmd_goal; cbv beta match delta [cmd_body]
     end
-  | |- @list_map _ _ (get _) _ _ => unfold1_list_map_goal; cbv beta match delta [list_map_body]
+  | |- @list_map _ _ (get _ _) _ _ => unfold1_list_map_goal; cbv beta match delta [list_map_body]
   | |- @list_map _ _ (expr _ _) _ _ => unfold1_list_map_goal; cbv beta match delta [list_map_body]
   | |- @list_map _ _ _ nil _ => cbv beta match fix delta [list_map list_map_body]
-  | |- expr _ _ _ _ => unfold1_expr_goal; cbv beta match delta [expr_body]
-  | |- dexpr _ _ _ _ => cbv beta delta [dexpr]
-  | |- dexprs _ _ _ _ => cbv beta delta [dexprs]
+  | |- expr _ _ _ _ _ => unfold1_expr_goal; cbv beta match delta [expr_body]
+  | |- dexpr _ _ _ _ _ => cbv beta delta [dexpr]
+  | |- dexprs _ _ _ _ _ => cbv beta delta [dexprs]
   | |- literal _ _ => cbv beta delta [literal]
-  | |- get _ _ _ => cbv beta delta [get]
-  | |- load _ _ _ _ => cbv beta delta [load]
+  | |- get _ _ _ _ => cbv beta delta [get]
+  | |- load _ _ _ _ _ => cbv beta delta [load]
   | |- @Loops.enforce ?width ?word ?locals ?names ?values ?map =>
     let values := eval cbv in values in
     change (@Loops.enforce width word locals names values map);
