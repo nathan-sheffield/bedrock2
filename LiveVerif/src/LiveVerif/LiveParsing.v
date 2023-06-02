@@ -21,9 +21,9 @@ Ltac exact_basename_string_of_ref_constr :=
 Declare Custom Entry bound_name_or_literal.
 Notation "x" :=
   (match x with
-   | _ => ltac:(lazymatch isZcst x with
-                | true => exact x
-                | false => exact_basename_string_of_ref_constr x
+   | _ => ltac:(lazymatch type of x with
+                | Z => exact x
+                | _ => exact_basename_string_of_ref_constr x
                 end)
    end)
   (in custom bound_name_or_literal at level 0, x constr at level 0, only parsing).
@@ -104,6 +104,11 @@ Notation "a >= b" := (expr.not (expr.op bopname.ltu a b))
    no associativity, only parsing).
 Infix "==" := (expr.op bopname.eq)
   (in custom live_expr at level 7, no associativity, only parsing).
+Notation "a != b" := (expr.not (expr.op bopname.eq a b))
+  (in custom live_expr at level 7, no associativity, only parsing).
+Remark unfolding_not_eq: forall a b: unit,
+  live_expr:(a != b) = live_expr:((a == b) == 0).
+Proof. intros _ _. unfold expr.not. reflexivity. Succeed Qed. Abort.
 Infix "&" := (expr.op bopname.and)
   (in custom live_expr at level 8, left associativity, only parsing).
 Infix "^" := (expr.op bopname.xor)
@@ -151,10 +156,33 @@ Goal forall (word: Type) (x: word),
   expr.op bopname.eq (expr.op bopname.ltu (expr.literal 3) (expr.var "x")) (expr.literal 0).
 Proof. intros. reflexivity. Abort.
 
+Declare Custom Entry comment.
+Notation "'comment:(' x ')'" := x (x custom comment at level 2, only parsing).
+Notation "x" := tt (in custom comment at level 0, x ident, only parsing).
+Notation "," := tt (in custom comment at level 0, only parsing).
+Notation "!" := tt (in custom comment at level 0, only parsing).
+Notation "?" := tt (in custom comment at level 0, only parsing).
+Notation "-" := tt (in custom comment at level 0, only parsing).
+Notation "+" := tt (in custom comment at level 0, only parsing).
+Notation "#" := tt (in custom comment at level 0, only parsing).
+Notation "$" := tt (in custom comment at level 0, only parsing).
+Notation ":" := tt (in custom comment at level 0, only parsing).
+Notation "a b" := tt
+  (in custom comment at level 2,
+   b custom comment at level 1,
+   only parsing).
+
+Goal True.
+  pose comment:(an attempt to write a comment).
+  pose comment:(let's include a comma, which should work!).
+Abort.
+
 Declare Custom Entry snippet.
 
 Notation "*/ s /*" := s (s custom snippet at level 100).
-Notation "*/ /*" := SEmpty.
+
+Notation "/* c */" := SEmpty
+  (in custom snippet at level 0, c custom comment at level 2, only parsing).
 
 Ltac coerce_expr_to_assignment_rhs e :=
   lazymatch type of e with
@@ -206,7 +234,12 @@ Notation "'while' ( e ) /* 'decreases' m */ {" :=
   (SWhile e m) (in custom snippet at level 0, e custom live_expr, m constr at level 0).
 
 Goal True.
-  pose */ /* as s.
+  pose */ /* hello, world! */ /* as s.
+  pose */ /* The way we implement C comments is a bit limited:
+             - We can't use full stops
+             - Only a few special characters are supported, eg ?, $, #
+             - We can't use parentheses
+             - We can't use Coq keywords */ /*.
   pose */ S(); /*.
   pose */ S( ); /*.
   pose */ S ( ); /*.

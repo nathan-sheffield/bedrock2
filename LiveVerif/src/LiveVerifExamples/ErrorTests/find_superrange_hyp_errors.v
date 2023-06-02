@@ -1,19 +1,21 @@
-(* -*- eval: (load-file "../LiveVerif/live_verif_setup.el"); -*- *)
+(* -*- eval: (load-file "../../LiveVerif/live_verif_setup.el"); -*- *)
 Require Import LiveVerif.LiveVerifLib.
-
-Ltac pose_err e ::= pose_err_silent e.
 
 Load LiveVerif.
 
-Record bar_t{n: Z} := {
-  barA: uint_t 16;
-  barB: uint_t 16;
+Record bar_t := {
+  barA: Z;
+  barB: Z;
   barC: word;
-  barPayload: array_t (uint_t 32) n;
+  barPayload: list Z;
 }.
 Arguments bar_t: clear implicits.
 
-Instance bar(n: uint_t 32): RepPredicate (bar_t n) := ltac:(create_predicate).
+Definition bar(n: Z)(b: bar_t): word -> mem -> Prop := record!
+  (cons (mk_record_field_description barA (uint 16))
+  (cons (mk_record_field_description barB (uint 16))
+  (cons (mk_record_field_description barC uintptr)
+  (cons (mk_record_field_description barPayload (array (uint 32) n)) nil)))).
 
 #[export] Instance spec_of_swap_barAB: fnspec :=                                .**/
 
@@ -34,8 +36,11 @@ Derive swap_barAB SuchThat (fun_correct! swap_barAB) As swap_barAB_ok.          
   clear Error.
   forget bar as bar'.
 
-  step.
-  test_error Error:("typeclasses eauto" "should find" (PredicateSize (bar' n b))).
+  steps.
+  lazymatch goal with
+  | _: message_scope_marker (PredicateSize_not_found (bar' n b)) |- _ => idtac
+  end.
+  test_error Error:("Exactly one of the following subrange claims should hold:" nil).
 Abort.
 
 End LiveVerif. Comments .**/ //.

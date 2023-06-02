@@ -1,10 +1,13 @@
 Require Import PyLevelLang.Language.
 Require Import coqutil.Map.Interface coqutil.Map.SortedListString.
+Require Import Coq.Numbers.DecimalString.
 
 Local Open Scope Z_scope.
 
-Fixpoint interp_type (t : type) :=
+Fixpoint interp_type {width : Z} {BW : Bitwidth width} {word : word.word width}
+  (t : type) : Type :=
   match t with
+  | TWord => word
   | TInt => Z
   | TBool => bool
   | TString => string
@@ -13,8 +16,13 @@ Fixpoint interp_type (t : type) :=
   | TEmpty => unit
   end.
 
+Section WithWord.
+Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
+Context {word_ok: word.ok word} {mem_ok: map.ok mem}.
+
 Fixpoint default_val (t : type) : interp_type t :=
   match t as t' return interp_type t' with
+  | TWord => word.of_Z 0
   | TInt => 0
   | TBool => false
   | TString => EmptyString
@@ -29,6 +37,12 @@ Fixpoint eval_range (lo : Z) (len : nat) : list Z :=
   | S n => lo :: eval_range (lo + 1) n
   end.
 
+Fixpoint eval_range_word (lo : word) (len : nat) : list word :=
+  match len with
+  | 0%nat => nil
+  | S n => lo :: eval_range_word (word.add lo (word.of_Z 1)) n
+  end.
+
 Definition proj_expected (t_expected : type) (v : {t_actual & interp_type t_actual}) : 
   interp_type t_expected :=
   match type_eq_dec (projT1 v) t_expected with
@@ -41,6 +55,7 @@ Definition eqb_values {t : type} (H : can_eq t = true) :
 Proof.
   refine (
   match t as t' return can_eq t' = true -> interp_type t' -> interp_type t' -> bool with
+  | TWord => fun _ => word.eqb
   | TInt => fun _ => Z.eqb
   | TString => fun _ => String.eqb
   | TBool => fun _ => Bool.eqb
@@ -48,7 +63,6 @@ Proof.
   | _ => _
   end H); easy.
 Defined.
-
 
 Section WithMap.
   Context {locals: map.map string {t & interp_type t}} {locals_ok: map.ok locals}.
@@ -64,6 +78,7 @@ Section WithMap.
 
   Definition interp_atom {t : type} (a : atom t) : interp_type t :=
     match a with
+    | AWord z => word.of_Z z
     | AInt n => n
     | ABool b => b
     | AString s => s
@@ -74,33 +89,45 @@ Section WithMap.
   Definition interp_unop {t1 t2 : type} (o : unop t1 t2) :
     interp_type t1 -> interp_type t2 :=
     match o in unop t1 t2 return interp_type t1 -> interp_type t2 with
-    | ONeg => Z.sub 0
+    | OWNeg => word.opp
+    | ONeg => Z.opp
     | ONot => negb
     | OLength _ => fun x => Z.of_nat (length x)
     | OLengthString => fun x => Z.of_nat (String.length x)
     | OFst _ _ _ => fst
     | OSnd _ _ _ => snd
+    | OIntToString => fun n => DecimalString.NilZero.string_of_int (BinInt.Z.to_int n)
     end.
 
   Definition interp_binop {t1 t2 t3: type} (o : binop t1 t2 t3) : 
     interp_type t1 -> interp_type t2 -> interp_type t3 := 
     match o in binop t1 t2 t3 
     return interp_type t1 -> interp_type t2 -> interp_type t3 with 
+    | OWPlus => word.add
     | OPlus =>  Z.add
+    | OWMinus => word.sub
     | OMinus => Z.sub
+    | OWTimes => word.mul
     | OTimes => Z.mul
+    | OWDivU => word.divu
+    | OWDivS => word.divs
     | ODiv => Z.div
+    | OWModU => word.modu
+    | OWModS => word.mods
     | OMod => Z.modulo
     | OAnd => andb
     | OOr => orb
     | OConcat _ => fun a b => app a b
     | OConcatString => String.append
-    | OLess => Z.leb
+    | OWLessU => word.ltu
+    | OWLessS => word.lts
+    | OLess => Z.ltb
     | OEq _ H => eqb_values H
     | ORepeat _ => fun l n => concat (repeat l (Z.to_nat n))
     | OPair _ _ _ => pair
     | OCons _ => cons
     | ORange => fun s e => eval_range s (Z.to_nat (e - s))
+    | OWRange => fun s e => eval_range_word s (Z.to_nat (word.unsigned e - word.unsigned s))
     end.
 
   Fixpoint interp_expr (l : locals) {t : type} (e : expr t) : interp_type t :=
@@ -111,6 +138,10 @@ Section WithMap.
     | EBinop o e1 e2 => interp_binop o (interp_expr l e1) (interp_expr l e2)
     | EFlatmap l1 x fn => flat_map (fun y => interp_expr (set_local l x y) fn) (interp_expr l l1)
     | EIf e1 e2 e3 => if interp_expr l e1 then interp_expr l e2 else interp_expr l e3
+    | EFold l1 a x y fn => let l1' := interp_expr l l1 in
+                             let a' := interp_expr l a in
+                             let fn' := fun v acc => interp_expr (set_local (set_local l x v) y acc) fn in
+                             fold_right fn' a' l1'
     | ELet x e1 e2 => interp_expr (set_local l x (interp_expr l e1)) e2
     end.
 
@@ -126,3 +157,4 @@ Section WithMap.
                          map.update l' x (map.get l x)
     end.
 End WithMap.
+End WithWord.

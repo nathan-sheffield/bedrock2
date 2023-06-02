@@ -1,11 +1,12 @@
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.Init.Byte.
-Require Import coqutil.Word.Bitwidth.
+Require Import coqutil.Word.Bitwidth coqutil.Word.Properties.
 Require Import coqutil.Map.Interface coqutil.Map.Properties.
 Require Import coqutil.Datatypes.ZList.
 Require Import coqutil.Datatypes.Inhabited.
 Require Import coqutil.Tactics.Tactics.
 Require Import coqutil.Tactics.syntactic_unify.
+Require Import coqutil.Tactics.ltac_list_ops.
 Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Tactics.fold_hyps.
 Require Import coqutil.Datatypes.RecordSetters.
@@ -14,9 +15,10 @@ Require Import bedrock2.PurifySep.
 Require Import bedrock2.SepLib.
 Require Import bedrock2.sepapp.
 Require Import bedrock2.ZnWords.
+Require Import bedrock2.SuppressibleWarnings.
 Require Import bedrock2.TacticError.
 Require Import bedrock2.HeapletwiseHyps.
-Require Import bedrock2.bottom_up_simpl_ltac1.
+Require Import bedrock2.bottom_up_simpl.
 Require Import bedrock2.Map.SeparationLogic.
 
 Import ZList.List.ZIndexNotations.
@@ -120,7 +122,7 @@ Section SepLog.
         (* first part *)
         sep (array elem i vs[:i] a)
         (* middle subarray part *)
-          (sep (array elem size vs[i:i+size] a')
+          (sep (array elem size vs[i:][:size] a')
         (* final part *)
             (array elem (n-i-size) vs[i+size:]
               (word.add a' (word.of_Z (elemSize * size))))) m)
@@ -146,6 +148,7 @@ Section SepLog.
 
       rewrite List.len_upto by ZnWords.
       rewrite List.len_sized_slice by ZnWords.
+      rewrite List.from_upto_comm by ZnWords.
       rewrite List.from_canon with (i := i+size).
       rewrite List.len_indexed_slice with (i := i+size) (j := len vs) by ZnWords.
 
@@ -162,7 +165,7 @@ Section SepLog.
       heapletwise_step.
       apply Array.array_append in H5.
       heapletwise_step.
-      rewrite List.len_sized_slice in * by ZnWords.
+      rewrite List.len_add_sized_slice in * by ZnWords.
 
       replace (word.add a
                (word.of_Z (word.unsigned (width := width)
@@ -258,10 +261,10 @@ Section SepLog.
       rewrite sepapps_replace_spec.
     - rewrite (expose_nth_sepapp l n a P sz H1) in H2.
       eapply SeparationLogic.sep_comm. eqapply H2. f_equal.
-      rewrite H0. destruct width_cases; subst width; ZnWords.
+      rewrite H0. rewrite word.of_Z_unsigned, word.add_sub_r_same_r; trivial.
     - rewrite <- (merge_back_nth_sepapp l n a P sz H1).
       eapply SeparationLogic.sep_comm. eqapply H2. f_equal.
-      rewrite H0. destruct width_cases; subst width; ZnWords.
+      rewrite H0. rewrite word.of_Z_unsigned, word.add_sub_r_same_r; trivial.
   Qed.
 
 (* alternative way of expressing "1 past a'":
@@ -346,7 +349,7 @@ Ltac find_field_index_from_offset :=
   lazymatch goal with
   | |- sepapps_offset ?i_ev ?l = ?ofs =>
       tryif is_evar i_ev then
-        lazymatch concrete_list_length_err l with
+        lazymatch list_length_option l with
         | Some ?n => once (let i := pick_nat n in unify i_ev i; reflexivity)
         | None => fail 1000 l "is not a concrete list"
         end
@@ -518,6 +521,12 @@ Ltac canceling_step_in_hyp C :=
       clear H m
   end.
 
+Ltac cancel_in_hyp H :=
+  start_canceling_in_hyp H;
+  repeat canceling_step_in_hyp H;
+  eapply canceling_done_in_hyp in H;
+  destruct H as (?m & ?D & ?H).
+
 Ltac merge_step_in_hyp H :=
   lazymatch type of H with
   (* Special case for records: Need to solve sideconditions SC1 and SC2 (using eq_refl).
@@ -534,10 +543,7 @@ Ltac merge_step_in_hyp H :=
       end
   | _ => idtac
   end;
-  start_canceling_in_hyp H;
-  repeat canceling_step_in_hyp H;
-  eapply canceling_done_in_hyp in H;
-  destruct H as (?m & ?D & ?H).
+  cancel_in_hyp H.
 
 Lemma f_equal_fun[A B: Type]: forall (f g: A -> B) (x: A), f = g -> f x = g x.
 Proof. intros. subst. reflexivity. Qed.
@@ -570,32 +576,37 @@ Ltac is_subrange start size start' size' :=
   assert_succeeds (idtac; assert (subrange start size start' size') by
                      (unfold subrange; ZnWords)).
 
-Inductive PredicateSizeNotFound := .
+Inductive PredicateSize_not_found{PredTp: Type}(pred: PredTp): Set :=
+  mk_PredicateSize_not_found.
 
-Ltac get_predicate_size_or_pose_err P :=
-  let t := constr:(PredicateSize P) in
-  match constr:(Set) with
-  | _ => lazymatch constr:(_: t) with ?s => s end
-  | _ => let __ := match constr:(Set) with
-                   | _ => pose_err Error:("typeclasses eauto" "should find" t)
-                   end in constr:(PredicateSizeNotFound)
-  end.
+Notation "'(PredicateSize'  pred ')'  'cannot'  'be'  'solved'  'by'  'typeclasses' 'eauto'" :=
+  (PredicateSize_not_found pred)
+  (at level 1, pred at level 9, only printing)
+: message_scope.
 
 Ltac gather_is_subrange_claims_into_error start size :=
   fold_hyps_upwards_cont
     (fun res h tp =>
        lazymatch tp with
        | with_mem ?m (?P' ?start') =>
-          lazymatch get_predicate_size_or_pose_err P' with
-          | PredicateSizeNotFound => fail "can't find PredicateSize for" P'
-          | ?size' =>
-              constr:(cons (subrange start size start' size') res)
+          match constr:(Set) with
+          | _ => lazymatch constr:(_: PredicateSize P') with
+                 | ?size' => constr:(cons (subrange start size start' size') res)
+                 end
+          | _ => res
           end
        | _ => res
        end)
     (@nil Prop)
     (fun r => pose_err
                 Error:("Exactly one of the following subrange claims should hold:" r)).
+
+Ltac is_singleton_record_predicate p :=
+  let h := head p in
+  lazymatch eval unfold h in p with
+  | sepapps (cons _ nil) => idtac
+  | _ => fail "not a singleton record predicate"
+  end.
 
 Ltac split_step :=
   lazymatch goal with
@@ -606,12 +617,22 @@ Ltac split_step :=
   | |- find_superrange_hyp ?start ?size ?g =>
       match goal with
       | H: with_mem ?mH (?P' ?start') |- _ =>
-          lazymatch get_predicate_size_or_pose_err P' with
-          | PredicateSizeNotFound => idtac
+          let maybesize' := match constr:(Set) with
+                            | _ => lazymatch constr:(_: PredicateSize P') with ?s => s end
+                            | _ => constr:(tt)
+                            end in
+          lazymatch maybesize' with
+          | tt =>
+              (* progress could fail because warning was already posed or because
+                 warning is suppressed *)
+              progress pose_warning (mk_PredicateSize_not_found P')
           | ?size' =>
               is_subrange start size start' size';
-              tryif assert_succeeds (idtac;
-                assert (size = size') by ZnWords)
+              tryif assert_succeeds (idtac; assert (size = size') by ZnWords);
+                    (* TODO: below check should be more general and see if one of the
+                       records is a sub-record of the other, potentially unfolding
+                       several singleton-field records *)
+                    assert_fails (idtac; is_singleton_record_predicate P')
               then (
                 change g;
                 let P := lazymatch goal with | |- canceling (cons ?P _) _ _ => P end in

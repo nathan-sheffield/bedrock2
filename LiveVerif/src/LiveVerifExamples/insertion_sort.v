@@ -1,3 +1,4 @@
+(* -*- eval: (load-file "../LiveVerif/live_verif_setup.el"); -*- *)
 Require Import coqutil.Sorting.Permutation.
 Require Import LiveVerif.LiveVerifLib.
 Require Import List Lia.
@@ -48,22 +49,19 @@ void insert(uintptr_t p, uintptr_t n, uintptr_t i) /**#
 Derive insert SuchThat (fun_correct! insert) As insert_ok.
 .**/ { /**.
   assert (len (sort l1 ++ [|x|]) = \[i]+1) by (rewrite List.len_app; simpl; ZnWords).
-  assert (len l2 = \[n]-\[i]-1).
-  {
-    unfold with_mem, array in H0.
-    step.
-    step.
-    rewrite List.len_app in H3.
-    ZnWords.
-  }
-  assert ((sort l1 ++ [|x|])[:\[i] + 1] = (sort l1 ++ [|x|])).
-  { rewrite List.upto_pastend. reflexivity. ZnWords. }
-
   .**/ real_insert(p, i); /**.
-  instantiate (1 := x) in H5.
-  instantiate (1 := l1) in H5.
-.**/ } /**.
-congruence.
+  2: {
+    replace (sort l1 ++ x :: l2) with ((sort l1 ++ [|x|]) ++ l2) by steps.
+    rewrite List.upto_app_discard_r by steps.
+    rewrite List.upto_pastend by steps.
+    reflexivity.
+  }
+.**/ } /*?.
+step. step. step. step. step. step. step. step. step. step. step. step.
+step.
+change (x :: l2) with ([|x|] ++ l2).
+rewrite List.from_app_discard_l.
+step. step. cbn. step.
 Qed.
 
 (* Insertion sort *)
@@ -84,10 +82,11 @@ Derive insertion_sort SuchThat (fun_correct! insertion_sort) As insertion_sort_o
   assert (len arr = \[n]-\[i]) as lenArrR by hwlia.
   assert (len (sort nil) = \[i]) as lenArrL by
       (bottom_up_simpl_in_goal; rewrite sort_nil; auto).
-  replace arr with ((sort nil) ++ arr) in H1 by
-    (rewrite sort_nil;
-    rewrite List.app_nil_l;
-    auto).
+  lazymatch goal with
+  | H: _ |= array (uint 32) _ ?arr _ |- _ =>
+      replace arr with ((sort nil) ++ arr) in H by
+        (rewrite sort_nil; rewrite List.app_nil_l; auto)
+  end.
 
   (* assign some names so we can generalize *)
   set (arrL := nil) in * |-;
@@ -95,8 +94,9 @@ Derive insertion_sort SuchThat (fun_correct! insertion_sort) As insertion_sort_o
   assert (arr = arrL ++ arrR) as HarrSplit by (subst arrL arrR; auto).
 
   (* generalize *)
-  loop invariant above arrL;
-  clearbody i arrL arrR.
+  loop invariant above i.
+  clearbody arrL arrR.
+  delete #(i = ??).
 
   .**/ while (i < n) /* decreases (n ^- i) */ { /**.
 
@@ -114,18 +114,10 @@ Derive insertion_sort SuchThat (fun_correct! insertion_sort) As insertion_sort_o
       assumption. }
 
     .**/ i = i+1; /**.
-    assert (len arrR' = \[n]-\[i]). {
-      purify_heapletwise_hyps.
-      rewrite ? List.len_app in *.
-      rewrite <- ? sort_preserves_length in *.
-      rewrite ? List.len_app in *.
-      rewrite <- ? sort_preserves_length in *.
-      ZnWords.
-    }
 
   (* at this point we can now close the loop *)
   (* because the lengths of left side and right side have been established *)
-  .**/ } /**. end while.
+  .**/ } /**.
 
 (* at the end of the loop now. arrR should be empty. *)
   assert (len arrR = 0) by ZnWords.

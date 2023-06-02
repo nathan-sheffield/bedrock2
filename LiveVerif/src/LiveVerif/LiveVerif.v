@@ -10,8 +10,11 @@ Section LiveVerif.
   Import DoubleBraceUpdate.
   Local Open Scope zlist_scope.
   Local Open Scope sep_bullets_scope.
+  Local Open Scope sepapp_bullets_scope.
   Local Open Scope live_scope.
   Local Open Scope bool_scope.
+
+  Local Hint Mode Word.Interface.word - : typeclass_instances.
 
   Add Ring wring : (Properties.word.ring_theory (word := word))
         ((*This preprocessing is too expensive to be always run, especially if
@@ -37,4 +40,3 @@ Section LiveVerif.
   Local Set Ltac2 Backtrace.
 
   Local Arguments after_if {width BW word mem locals ext_spec fs b Q1 Q2 rest post}.
-  Local Arguments after_loop {width BW word mem locals ext_spec fs c t m l post}.

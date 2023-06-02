@@ -6,12 +6,28 @@ Require Import coqutil.Map.Interface coqutil.Map.Properties.
 Require coqutil.Map.SortedListString. (* for function env, other maps are kept abstract *)
 Require Import coqutil.Word.Interface coqutil.Word.Properties coqutil.Word.Bitwidth.
 Require Import coqutil.Tactics.Tactics coqutil.Tactics.fwd.
+Require Import coqutil.Datatypes.ListSet.
 Require Import bedrock2.Syntax bedrock2.Semantics.
 Require Import bedrock2.Lift1Prop.
 Require Import bedrock2.Map.Separation bedrock2.Map.SeparationLogic bedrock2.Array.
 Require Import bedrock2.WeakestPrecondition bedrock2.ProgramLogic bedrock2.Loops.
 Require Import bedrock2.ZnWords.
 Require Import bedrock2.SepLib.
+
+(* A let-binding using an equality instead of :=, living in Prop.
+   Equivalent to (exists x, x = rhs /\ body x).
+   We don't use regular exists to make the intention recognizable by tactics.
+   In particular, note that
+     if c then exists x, x = rhs /\ P x else F
+   implies
+     exists x, if c then x = rhs /\ P x else F
+   but this step is a bad step to apply, because it loses information:
+   After destructing the exists, we can't pull the `x = rhs` out of the then-branch
+   any more.
+   However, if we pull out the exist and the equality at the same time, it works.
+   (All of this assumes that the type of x is inhabited). *)
+Inductive elet{A: Type}(rhs: A)(body: A -> Prop): Prop :=
+| mk_elet(x: A)(_: x = rhs)(_: body x).
 
 Section WithParams.
   Import bedrock2.Syntax.
@@ -369,6 +385,27 @@ Section WithParams.
     inversion H. assumption.
   Qed.
 
+  Fixpoint update_locals(keys: list string)(vals: list word)
+    (l: locals)(post: locals -> Prop) :=
+    match keys, vals with
+    | cons k ks, cons v vs => update_locals ks vs (map.put l k v) post
+    | nil, nil => post l
+    | _, _ => False
+    end.
+
+  Lemma update_locals_spec: forall keys vals l post,
+      update_locals keys vals l post <->
+      (exists l', map.putmany_of_list_zip keys vals l = Some l' /\ post l').
+  Proof.
+    induction keys; intros; split; simpl; intros; destruct vals;
+      fwd; try contradiction; try discriminate; eauto; try eapply IHkeys; eauto.
+  Qed.
+
+  Lemma update_one_local_eq: forall s v l (post: locals -> Prop),
+      (forall x, x = v -> post (map.put l s x)) ->
+      update_locals (cons s nil) (cons v nil) l post.
+  Proof. unfold update_locals. intros. apply (H _ eq_refl). Qed.
+
   Lemma wp_set0: forall fs x e v t m l rest post,
       dexpr m l e v ->
       wp_cmd fs rest t m (map.put l x v) post ->
@@ -426,6 +463,46 @@ Section WithParams.
       destruct width_cases as [W|W]; subst width; reflexivity.
   Qed.
 
+  Definition merge_locals(c: bool):
+    list (string * word) -> list (string * word) -> (list (string * word) -> Prop) -> Prop :=
+    fix rec l1 l2 post :=
+      match l1, l2 with
+      | cons (x1, v1) t1, cons (x2, v2) t2 =>
+          if String.eqb x1 x2
+          then (forall v, v = (if c then v1 else v2) ->
+                          rec t1 t2 (fun l => post (cons (x1, v) l)))
+          else False
+      | nil, nil => post nil
+      | _, _ => False
+      end.
+
+  Lemma push_if_into_merge_locals: forall c kvs1 kvs2 post,
+    merge_locals c kvs1 kvs2 post ->
+    post (if c then kvs1 else kvs2).
+  Proof.
+    induction kvs1; intros; destruct kvs2; destruct c;
+      repeat match goal with
+        | a: _ * _ |- _ => destruct a
+        end;
+      simpl in *;
+      repeat destruct_one_match_hyp;
+      eauto; try contradiction;
+      repeat match goal with
+        | H: forall _, _ -> _ |- _ => specialize (H _ eq_refl)
+        | IH: _, H: _ |- _ => specialize IH with (1 := H)
+        end;
+      cbv beta in *;
+      assumption.
+  Qed.
+
+  Lemma merge_locals_same: forall c h t1 t2 post,
+      merge_locals c t1 t2 (fun l => post (cons h l)) ->
+      merge_locals c (cons h t1) (cons h t2) post.
+  Proof.
+    simpl. intros. destruct h as [x v]. rewrite String.eqb_refl. intros. subst.
+    destruct c; assumption.
+  Qed.
+
   Lemma wp_if0: forall fs c thn els rest b Q1 Q2 t m l post,
       dexpr m l c b ->
       (word.unsigned b <> 0 -> wp_cmd fs thn t m l Q1) ->
@@ -448,10 +525,11 @@ Section WithParams.
     cmd -> trace -> mem -> locals -> (trace -> mem -> locals -> Prop) -> Prop := wp_cmd.
 
   Lemma wp_set: forall fs x e v t m l rest post,
-      dexpr1 m l e v (wp_cmd fs rest t m (map.put l x v) post) ->
+      dexpr1 m l e v (update_locals (cons x nil) (cons v nil) l
+                        (fun l' => wp_cmd fs rest t m l' post)) ->
       wp_cmd fs (cmd.seq (cmd.set x e) rest) t m l post.
   Proof.
-    intros. inversion H. eapply wp_set0; eassumption.
+    unfold update_locals. intros. inversion H. eapply wp_set0; eassumption.
   Qed.
 
   Lemma wp_unset: forall fs x t m l rest post,
@@ -476,14 +554,14 @@ Section WithParams.
       wp_cmd fs (cmd.seq (unset_many vars) rest) t m l post.
   Proof. intros. eapply wp_seq. eapply wp_unset_many0. assumption. Qed.
 
-  Lemma wp_unset_many_after_if: forall vars (b: bool) fs t m l1 l2 l' l1' l2' rest post,
-      map.remove_many l1 vars = l1' ->
-      map.remove_many l2 vars = l2' ->
-      (if b then l1' else l2') = l' ->
-      wp_cmd fs rest t m l' post ->
-      wp_cmd fs (cmd.seq (unset_many vars) rest) t m (if b then l1 else l2) post.
+  Lemma wp_unset_many_after_if: forall vars (b: bool) fs t m l l1 l2 li1 li2 rest post,
+      l = (if b then l1 else l2) ->
+      map.remove_many l1 vars = map.of_list li1 ->
+      map.remove_many l2 vars = map.of_list li2 ->
+      wp_cmd fs rest t m (map.of_list (if b then li1 else li2)) post ->
+      wp_cmd fs (cmd.seq (unset_many vars) rest) t m l post.
   Proof.
-    intros. eapply wp_unset_many. subst. destruct b; assumption.
+    intros. subst. eapply wp_unset_many. destruct b; congruence.
   Qed.
 
   Lemma wp_store_uintptr: forall fs ea ev a v v_old R t m l rest (post: _->_->_->Prop),
@@ -514,36 +592,92 @@ Section WithParams.
   Definition then_branch_marker(P: Prop) := P.
   Definition else_branch_marker(P: Prop) := P.
   Definition after_if fs (b: bool) (Q1 Q2: trace -> mem -> locals -> Prop) rest post :=
-    forall t m l, let c := b in
-      (if c then Q1 t m l else Q2 t m l) ->
+    forall t m l, elet b (fun c =>
+      if c then Q1 t m l else Q2 t m l) ->
       wp_cmd fs rest t m l post.
   Definition pop_scope_marker(P: Prop) := P.
 
-  Lemma wp_if_bool_dexpr: forall fs c thn els rest t0 m0 l0 b Q1 Q2 post,
+  Definition cons_structure_exposing_reversing_equality[A: Type](lhs rhs: list A): Prop :=
+    match List.rev' rhs with
+    | cons h t => lhs = cons h t
+    | nil => lhs = nil
+    end.
+  Remark explanation:
+    exists l, cons_structure_exposing_reversing_equality
+                l (List.app (cons (1+1) (cons (2+2) nil)) (cons (3+3) (cons (4+4) nil)))
+              /\ l = l.
+  Proof.
+    eexists. split. 1: reflexivity.
+    (* Note how the evar got instantiated to a list whose cons structure is fully exposed,
+       but the elements were not simplified at all *)
+    reflexivity.
+  Succeed Qed. Abort.
+
+  Lemma cons_structure_exposing_reversing_equality_spec[A: Type](lhs rhs: list A):
+    cons_structure_exposing_reversing_equality lhs rhs <-> lhs = List.rev rhs.
+  Proof.
+    rewrite List.rev_alt.
+    unfold cons_structure_exposing_reversing_equality. unfold List.rev'.
+    destruct_one_match; reflexivity.
+  Qed.
+
+  Definition branch_post(initial_locals: locals)(new_vars: list string)
+                        (Q: trace -> mem -> locals -> Prop)
+                        (t: trace)(m: mem)(l: locals): Prop :=
+    cons_structure_exposing_reversing_equality new_vars
+      (list_diff String.eqb (map.keys l) (map.keys initial_locals)) /\
+    (* ^- Note: the above equality is not needed to make the proof of wp_if_bool_dexpr work:
+          We are free to unset whatever variables we want at the end of a branch.
+          But picking new_vars such that the equality holds is what's consistent
+          with C scoping rules: if a variable was declared in both branches, but
+          not before the if, it's not available after the if. *)
+    Q t m (map.remove_many l new_vars).
+
+  Lemma wp_if_bool_dexpr fs c thn els rest t0 m0 l0 b new_thn_vars new_els_vars Q1 Q2 post:
       dexpr_bool3 m0 l0 c b
-        (then_branch_marker (wp_cmd fs thn t0 m0 l0 Q1))
-        (else_branch_marker (wp_cmd fs els t0 m0 l0 Q2))
+        (then_branch_marker (wp_cmd fs thn t0 m0 l0 (branch_post l0 new_thn_vars Q1)))
+        (else_branch_marker (wp_cmd fs els t0 m0 l0 (branch_post l0 new_els_vars Q2)))
         (pop_scope_marker (after_if fs b Q1 Q2 rest post)) ->
-      wp_cmd fs (cmd.seq (cmd.cond c thn els) rest) t0 m0 l0 post.
+      wp_cmd fs (cmd.seq (cmd.cond c (cmd.seq thn (unset_many new_thn_vars))
+                                     (cmd.seq els (unset_many new_els_vars)))
+                         rest) t0 m0 l0 post.
   Proof.
     intros. inversion H. subst. clear H.
     unfold then_branch_marker, else_branch_marker, pop_scope_marker,
       after_if, bool_expr_branches in *.
     destruct H2.
-    destr (word.eqb v (word.of_Z 0));
-      (eapply wp_if0;
-       [ eassumption
-       | intro C;
-         rewrite ?word.unsigned_of_Z_nowrap in C
-             by (destruct width_cases as [W|W]; rewrite W in *; lia);
-         try congruence; cbn in *; eauto ..]).
-    2: {
+    destr (word.eqb v (word.of_Z 0)); (eapply wp_if0; [ eassumption | .. ]).
+    all: try (intro C; rewrite ?word.unsigned_of_Z_nowrap in C
+                  by (destruct width_cases as [W|W]; rewrite W in *; lia); try congruence).
+    4: {
       exfalso. eapply E. eapply word.unsigned_inj.
       rewrite word.unsigned_of_Z_nowrap
           by (destruct width_cases as [W|W]; rewrite W in *; lia).
       exact C.
     }
-    all: intros * [(? & ?) | (? & ?)]; try (exfalso; congruence); eauto.
+    2,4: intros * [(? & ?) | (? & ?)].
+    2-5: eapply H1; econstructor; try reflexivity; simpl; eassumption.
+    all: eapply wp_seq.
+    all: eapply weaken_wp_cmd.
+    all: simpl in *.
+    1,3: exact H.
+    all: unfold branch_post.
+    all: intros * [? ?]; subst.
+    all: eapply wp_unset_many0.
+    all: assumption.
+  Qed.
+
+  Lemma after_if_skip {Bt Bf b} {_: BoolSpec Bt Bf b} fs
+    (PThen PElse Post: trace -> mem -> locals -> Prop):
+    (Bt -> forall t m l, PThen t m l -> Post t m l) ->
+    (Bf -> forall t m l, PElse t m l -> Post t m l) ->
+    after_if fs b PThen PElse cmd.skip Post.
+  Proof.
+    intros.
+    unfold after_if.
+    intros ? ? ? [? ? ?]. subst x.
+    eapply wp_skip.
+    destruct H; eauto.
   Qed.
 
   Definition loop_body_marker(P: Prop) := P.
@@ -628,12 +762,13 @@ Section WithParams.
       (* use-site format: *)
       dexprs1 m l arges argvs (calleePre /\
          forall t' m' retvs, calleePost t' m' retvs ->
-           exists l', map.putmany_of_list_zip resnames retvs l = Some l' /\
-                        wp_cmd fs rest t' m' l' finalPost) ->
+                             update_locals resnames retvs l (fun l' =>
+                                 wp_cmd fs rest t' m' l' finalPost)) ->
       (* conclusion: *)
       wp_cmd fs (cmd.seq (cmd.call resnames fname arges) rest) t m l finalPost.
   Proof.
     intros. inversion H0. clear H0. destruct Hp as (Pre & Impl).
+    setoid_rewrite update_locals_spec in Impl.
     specialize (H Pre). clear Pre.
     eapply wp_seq.
     eapply wp_call0. 1: eassumption.

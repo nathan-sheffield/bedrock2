@@ -66,14 +66,6 @@ Ltac is_concrete_list l :=
   purify_rec
 : purify.
 
-(* Type aliases that can inform proof automation, typeclass search,
-   as well as humans on intended usage: *)
-Definition uint_t(nbits: Z) := Z.
-Definition array_t(tp: Type)(nElems: Z) := list tp.
-
-Global Hint Opaque uint_t array_t : typeclass_instances.
-
-
 Definition nbits_to_nbytes(nbits: Z): Z := (Z.max 0 nbits + 7) / 8.
 
 Lemma nbits_to_nbytes_nonneg: forall nbits, 0 <= nbits_to_nbytes nbits.
@@ -123,3 +115,19 @@ Lemma purify_uintptr{width}{BW: Bitwidth width}{word: word width}
   purify (uintptr v a) True.
 Proof. unfold purify. intros. constructor. Qed.
 #[export] Hint Resolve purify_uintptr : purify.
+
+
+Definition anybytes{width}{BW: Bitwidth width}{word: word width}{mem: map.map word Byte.byte}
+  (sz: Z)(a: word)(m: mem): Prop := 0 <= sz /\ Memory.anybytes a sz m.
+
+#[export] Hint Extern 1 (PredicateSize (anybytes ?sz)) => exact sz
+: typeclass_instances.
+
+Lemma purify_anybytes{width}{BW: Bitwidth width}{word: word width}
+  {mem: map.map word Byte.byte} sz a:
+  purify (anybytes sz a) (0 <= sz).
+  (* Note:
+     - (sz <= 2^width) would hold (because of max memory size)
+     - (sz < 2^width) would be more useful but is not provable currently *)
+Proof. unfold purify, anybytes. intros * [? ?]. assumption. Qed.
+#[export] Hint Resolve purify_anybytes : purify.

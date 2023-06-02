@@ -82,10 +82,20 @@ Section Reassociate_sepapp.
   Definition sepapps(l: list sized_predicate): word -> mem -> Prop :=
     proj_predicate (List.fold_right sepapp_sized_predicates sized_emp l).
 
-  (* Could be made stronger, but probably better to purify before a record
-     has been unfolded into sepapps *)
-  Lemma purify_sepapps: forall l a, purify (sepapps l a) True.
+  Lemma purify_sepapps_nil: forall a, purify (sepapps nil a) True.
   Proof. unfold purify. intros. constructor. Qed.
+
+  Lemma purify_sepapps_cons: forall p P Q sz l a,
+      purify (p a) P ->
+      purify (sepapps l (word.add a (word.of_Z sz))) Q ->
+      purify (sepapps (cons (mk_sized_predicate p sz) l) a) (P /\ Q).
+  Proof.
+    unfold purify. intros. unfold sepapps in H1. simpl in H1.
+    destruct_one_match_hyp. simpl in H1. unfold sepapp, sep in H1.
+    fwd. split.
+    - eapply H. eassumption.
+    - eapply H0. unfold sepapps. rewrite E. simpl. eassumption.
+  Qed.
 
   Definition sepapps_size(l: list sized_predicate): Z :=
     List.fold_right Z.add 0 (List.map proj_size l).
@@ -186,4 +196,55 @@ Section Reassociate_sepapp.
 
 End Reassociate_sepapp.
 
-#[export] Hint Resolve purify_sepapps: purify.
+#[export] Hint Resolve purify_sepapps_nil: purify.
+#[export] Hint Resolve purify_sepapps_cons: purify.
+
+Ltac is_ground_Z x :=
+  lazymatch x with
+  | ?op ?a ?b =>
+      lazymatch (lazymatch op with
+                 | Z.add => constr:(true)
+                 | Z.mul => constr:(true)
+                 | _ => constr:(false)
+                 end) with
+      | true => lazymatch is_ground_Z a with
+                | true => lazymatch is_ground_Z b with
+                          | true => constr:(true)
+                          | false => constr:(false)
+                          end
+                | false => constr:(false)
+                end
+      | false => constr:(false)
+      end
+  | _ => isZcst x
+  end.
+
+Ltac sized_predicate_list_size l :=
+  lazymatch l with
+  | cons (mk_sized_predicate _ ?sz) nil => sz
+  | cons (mk_sized_predicate _ ?sz) ?rest =>
+      let sz' := sized_predicate_list_size rest in
+      constr:(Z.add sz sz')
+  | nil => Z0
+  end.
+
+(* Often, only the last field of a record is of variable size,
+   so computing the size left-associatively and adding up all
+   the constant sizes can simplify the expressions *)
+Ltac sepapps_size_with_ground_acc acc l :=
+  lazymatch l with
+  | cons (mk_sized_predicate _ ?sz) ?rest =>
+      lazymatch is_ground_Z sz with
+      | true => let acc' := eval cbv in (Z.add acc sz) in
+                  sepapps_size_with_ground_acc acc' rest
+      | false => lazymatch sized_predicate_list_size rest with
+                 | Z0 => constr:(Z.add acc sz)
+                 | ?sz' => constr:(Z.add acc (Z.add sz sz'))
+                 end
+      end
+  | nil => acc
+  end.
+
+#[export] Hint Extern 1 (PredicateSize (sepapps ?l)) =>
+  let sz := sepapps_size_with_ground_acc Z0 l in exact sz
+: typeclass_instances.

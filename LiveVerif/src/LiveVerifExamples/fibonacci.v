@@ -1,6 +1,5 @@
 (* -*- eval: (load-file "../LiveVerif/live_verif_setup.el"); -*- *)
 Require Import LiveVerif.LiveVerifLib.
-Require Import coqutil.Tactics.let_binding_to_eq.
 
 Load LiveVerif.
 
@@ -34,6 +33,14 @@ Proof.
   ZnWords.
 Qed.
 
+(* Tells the proof automation to apply f_equal on goals of shape `fib _ = fib _` *)
+#[local] Instance fib_inj: fake_injective fib. Qed.
+
+(* TODO also something like  word.unsigned (if c then a else b) = ... ? *)
+Lemma if_to_or: forall (c: bool) (P Q: Prop),
+    (if c then P else Q) -> c = true /\ P \/ c = false /\ Q.
+Proof. intros. destruct c; auto. Qed.
+
 #[export] Instance spec_of_fibonacci: fnspec :=                                 .**/
 
 uintptr_t fibonacci(uintptr_t n) /**#
@@ -49,16 +56,13 @@ Derive fibonacci SuchThat (fun_correct! fibonacci) As fibonacci_ok.             
     b = 1;                                                                 /**. .**/
     uintptr_t i = 1;                                                       /**.
 
-    let_bindings_to_eqs.
-    replace /[0] with (fib (i ^- /[1])) in Ha by
-        (subst; unfold fib; bottom_up_simpl_in_goal; reflexivity).
-    replace /[1] with (fib i) in Hb by
-        (subst; unfold fib; bottom_up_simpl_in_goal; reflexivity).
-    assert (1 <= \[i] <= \[n]) by ZnWords.
-    eqs_to_let_bindings.
-    clearbody i; move b after a.
-
-    loop invariant above i.                                                     .**/
+    swap /[0] with (fib (i ^- /[1])) in #(a = /[0]).
+    { unfold fib, fib_nat. steps. }
+    swap /[1] with (fib i) in #(b = /[1]).
+    { unfold fib, fib_nat. steps. }
+    prove (1 <= \[i] <= \[n]).
+    delete #(i = ??).
+    loop invariant above a.                                                     .**/
 
     while (i < n) /* decreases (\[n]-\[i]) */ {                            /**. .**/
       uintptr_t t = a + b;                                                 /**. .**/
@@ -66,12 +70,11 @@ Derive fibonacci SuchThat (fun_correct! fibonacci) As fibonacci_ok.             
       b = t;                                                               /**. .**/
       i = i + 1;                                                           /**. .**/
     }                                                                      /**.
-    rewrite fib_recursion by ZnWords; reflexivity.                              .**/
+    subst a' i. rewrite fib_recursion by steps; reflexivity.                    .**/
   }                                                                        /**. .**/
   return b;                                                                /**. .**/
 }                                                                          /**.
-{ unfold fib. bottom_up_simpl_in_goal. reflexivity. }
-{ replace i with n by ZnWords. reflexivity. }
+unfold fib. bottom_up_simpl_in_goal. reflexivity.
 Qed.
 
 End LiveVerif. Comments .**/ //.

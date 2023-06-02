@@ -23,7 +23,7 @@ Require Import bedrock2.ArrayCasts.
 Require Import bedrock2.SepAutoArray bedrock2.SepAutoExports.
 Require Import bedrock2.SepBulletPoints.
 Local Open Scope sep_bullets_scope. Undelimit Scope sep_scope.
-Require Import bedrock2.bottom_up_simpl_ltac1.
+Require Import bedrock2.bottom_up_simpl.
 
 Definition softmul_binary: list byte := Pipeline.instrencode handler_insts.
 
@@ -89,6 +89,7 @@ Lemma verify_handler_insts : Forall (fun i => verify i Decode.RV32I) handler_ins
 Proof.
   repeat (eapply Forall_cons || eapply Forall_nil).
   all : cbv; ssplit; trivial; try congruence.
+  all : left; reflexivity.
 Qed.
 
 Lemma byte_list_to_word_list_roundtrip: forall bs,

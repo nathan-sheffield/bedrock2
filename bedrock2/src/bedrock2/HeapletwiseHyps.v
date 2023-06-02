@@ -7,6 +7,7 @@ Require Import coqutil.Tactics.syntactic_unify.
 Require Import bedrock2.Lift1Prop.
 Require Import bedrock2.Map.DisjointUnion.
 Require Import bedrock2.TacticError.
+Require Import bedrock2.SuppressibleWarnings.
 Require Import bedrock2.PurifySep.
 Require Import bedrock2.Map.SeparationLogic. Local Open Scope sep_scope.
 
@@ -321,8 +322,26 @@ Section HeapletwiseHyps.
       canceling Ps om Rest ->
       canceling (emp P :: Ps) om Rest.
   Proof.
-    unfold canceling. intros. destruct H0 as [H2 HR]. split; [intros |exact HR].
+    unfold canceling. intros. destruct H0 as [H2 HR]. split; [intros | exact HR].
     eapply seps_cons. eapply sep_emp_l. eauto.
+  Qed.
+
+  Lemma cancel_ex1_head: forall {T: Type} {P: T -> mem -> Prop} {Ps om Rest} {x: T},
+      canceling (cons (P x) Ps) om Rest ->
+      canceling (cons (ex1 P) Ps) om Rest.
+  Proof.
+    unfold canceling. intros. destruct H as [H HR]. split; [intros | exact HR].
+    eapply seps_cons. eapply sep_ex1_l. unfold ex1. subst.
+    exists x. eapply seps_cons. eapply H. reflexivity.
+  Qed.
+
+  Lemma cancel_sep_head: forall {P Q: mem -> Prop} {Ps om Rest},
+      canceling (cons P (cons Q Ps)) om Rest ->
+      canceling (cons (sep P Q) Ps) om Rest.
+  Proof.
+    unfold canceling. intros. destruct H as [H HR]. split; [intros | exact HR].
+    simpl in *. subst om. destruct Ps as [ | R Rs]. 1: eauto.
+    eapply sep_assoc. eauto.
   Qed.
 
   Lemma canceling_last_step: forall hs path {P m} {Rest: Prop},
@@ -375,45 +394,95 @@ Ltac should_unpack P :=
  | _ => constr:(false)
  end.
 
-Ltac clear_if_dup H :=
+Ltac clear_if_dup_or_trivial H :=
   let t := type of H in
-  match goal with
-  | H': t |- _ => tryif constr_eq H H' then fail else clear H
-  | |- _ => idtac
+  lazymatch t with
+  | True => clear H
+  | ?x = ?x => clear H
+  | _ => match goal with
+         | H': t |- _ => tryif constr_eq H H' then fail else clear H
+         | |- _ => idtac
+         end
   end.
 
-(* Purify H, but if that leads to something non-interesting (just `True` or an already
-   known fact), clear H *)
-Ltac purify_hyp_instead_of_clearing H :=
-  let tHOrig := type of H in
-  unfold with_mem in H;
-  lazymatch type of H with
-  | ?P ?m =>
-      tryif is_var P then (
-        (* It's a frame, nothing to purify, so just clear.
-           If m is used elsewhere (eg in an (eq m) in a frame), we fail, so H remains. *)
-        clear H m
-      ) else (
-        let g := open_constr:(purify P _) in
-        let pf := match constr:(Set) with
-                  | _ => constr:(ltac:(eauto with purify) : g)
-                  | _ => constr:(tt)
-                 end in
-        lazymatch pf with
-        | tt => pose_err Error:(g "can't be solved by" "eauto with purify");
-                change tHOrig in H
-        | _ => lazymatch g with
-               | purify _ True => clear H; try clear m
-               | purify _ _ => eapply pf in H; try clear m; clear_if_dup H
-               end
-        end
-      )
+Ltac is_var_b x :=
+  match constr:(Set) with
+  | _ => let __ := match constr:(Set) with
+                   | _ => is_var x
+                   end in
+         constr:(true)
+  | _ => constr:(false)
   end.
 
-Ltac purify_heapletwise_hyps_instead_of_clearing :=
+Inductive cannot_purify{mem: Type}(pred: mem -> Prop): Set :=
+  mk_cannot_purify.
+
+Notation "'(purify'  pred  '_)'  'cannot'  'be'  'solved'  'by'  'eauto' 'with' 'purify'" :=
+  (cannot_purify pred)
+  (at level 1, pred at level 9, only printing)
+  : message_scope.
+
+Inductive nothing_to_purify: Prop := mk_nothing_to_purify.
+
+(* Returns a proof of the purified (h: pred m) or mk_nothing_to_purify.
+   As a side effect, it might pose a warning, so it should not be called inside a try. *)
+Ltac purified_hyp_of_pred h pred m :=
+  lazymatch is_var_b pred with
+  | true => constr:(mk_nothing_to_purify) (* it's probably a frame *)
+  | false =>
+      let pf := match constr:(Set) with
+                | _ => constr:(ltac:(eauto with purify) : purify pred _)
+                | _ => let __ :=
+                         match constr:(Set) with
+                         | _ => pose_warning (mk_cannot_purify pred)
+                         end in
+                       constr:(mk_nothing_to_purify)
+                end in
+      lazymatch type of pf with
+      | nothing_to_purify => pf
+      | purify pred True => constr:(mk_nothing_to_purify)
+      | purify pred ?p => constr:(pf m h)
+      end
+  end.
+
+(* Returns a proof of the purified (h: t) or mk_nothing_to_purify.
+   As a side effect, it might pose a warning, so it should not be called inside a try. *)
+Ltac purified_hyp h t :=
+  lazymatch t with
+  | with_mem ?m ?pred => purified_hyp_of_pred h pred m
+  | ?pred ?m =>
+      lazymatch type of m with
+      | @map.rep (@Interface.word.rep _ _) Byte.byte _ => purified_hyp_of_pred h pred m
+      | _ => constr:(mk_nothing_to_purify)
+      end
+  | _ => constr:(mk_nothing_to_purify)
+  end.
+
+Ltac heapletwise_hyp_pre_clear_default h :=
+  let t := type of h in
+  lazymatch purified_hyp h t with
+  | mk_nothing_to_purify => idtac
+  | ?pf => let hp := fresh "old_" h "_pure" in pose proof pf as hp;
+           clear_if_dup_or_trivial hp
+  end.
+
+Ltac heapletwise_hyp_pre_clear_hook H := heapletwise_hyp_pre_clear_default H.
+
+Ltac clear_heapletwise_hyp H :=
+  let tH := type of H in
+  let m := lazymatch tH with
+           | with_mem ?m _ => m
+           | _ ?m => m
+           | _ => fail 1000 H "has unexpected shape" tH
+           end in
+  heapletwise_hyp_pre_clear_hook H;
+  (clear H || fail 1000 "Can't clear" H ": probably a bug!");
+  try clear m.
+
+Ltac clear_heapletwise_hyps :=
   repeat match goal with
          | _: tactic_error _ |- _ => fail 1 (* pose at most one error *)
-         | H: with_mem _ _ |- _ => purify_hyp_instead_of_clearing H
+         | H: with_mem _ _ |- _ => clear_heapletwise_hyp H
          end.
 
 (* can be overridden using ::= *)
@@ -446,13 +515,24 @@ Ltac replace_with_new_mem_hyp H :=
                             end in HOld
               end in
   move H before HOld;
-  purify_hyp_instead_of_clearing HOld;
-  (try let HOld' := fresh HOld in rename HOld into HOld' (* fails if HOld got cleared *));
+  clear_heapletwise_hyp HOld;
   rename H into HOld.
 
-(* Called whenever a new heapletwise hyp is created whose type is not a star (that will
-   get destructed further) *)
-Ltac new_heapletwise_hyp_hook h := idtac.
+(* Called whenever a new heapletwise hyp is created whose type will get destructed further *)
+Ltac new_heapletwise_hyp_hook h t := idtac.
+
+Ltac new_mem_hyp h :=
+  let t := type of h in
+  let p := lazymatch t with
+           | with_mem ?m ?p => p
+           | ?p ?m => p
+           end in
+  lazymatch p with
+  | sep _ _ => idtac
+  | emp _ => idtac
+  | ex1 _ => idtac
+  | _ => new_heapletwise_hyp_hook h t
+  end.
 
 Ltac split_sep_step :=
   let D := fresh "D" in
@@ -477,8 +557,8 @@ Ltac split_sep_step :=
       | (false, false) => eapply sep_to_with_mem_and_with_mem in H
       end;
       destruct H as (m1 & m2 & H1 & H2 & D);
-      new_heapletwise_hyp_hook H1;
-      new_heapletwise_hyp_hook H2;
+      new_mem_hyp H1;
+      new_mem_hyp H2;
       move m1 before parent_m; (* before in direction of movement == below *)
       move m2 before m1;
       try replace_with_new_mem_hyp H1;
@@ -617,6 +697,8 @@ Ltac canceling_step :=
       else
         lazymatch R with
         | emp _ => eapply cancel_pure_head
+        | ex1 _ => eapply cancel_ex1_head
+        | sep _ _ => eapply cancel_sep_head
         | _ => let H :=
                  match goal with
                  | H: with_mem _ ?P' |- _ =>
@@ -637,9 +719,6 @@ Ltac intro_step :=
   | H: with_mem _ _ |- sep _ _ _ -> _ =>
       let H' := fresh "H0" in
       intro H'; move H' before H
-  | |- ?Q ?mNew -> ?nondependent_body =>
-      let H := fresh "H0" in
-      replace_with_new_mem_hyp H
   end.
 
 Ltac and_step :=
@@ -772,6 +851,19 @@ Section HeapletwiseHypsTests.
     canceling_step.
     canceling_step.
     step.
+  Qed.
+
+  Goal forall m v1 v2 v3 v4 (Rest: mem -> Prop),
+      (sep (scalar v1 1) (sep (sep (scalar v2 2) (scalar v3 3)) (sep (scalar v4 4) Rest))) m ->
+      exists R a4, sep (ex1 (fun a3 => sep (scalar a4 4) (scalar a3 3))) R m.
+  Proof.
+    clear frobnicate frobnicate_ok wp_call update_locals wp call cmd_call.
+    step. step. step. step. step. step. step. step. step. step. step. step. step.
+    (* now we start canceling, but still with an ex1 inside the list: *)
+    step.
+    step. (* ex1 *)
+    step. (* sep *)
+    step. step. step. step.
   Qed.
 
   (* sample caller: *)

@@ -18,37 +18,26 @@ Derive memset SuchThat (fun_correct! memset) As memset_ok.                      
 {                                                                          /**. .**/
   uintptr_t i = 0;                                                         /**.
 
-  assert (len bs = \[n]) as lenbs by hwlia.
-  let h := lazymatch goal with h: _ |= array _ _ _ _ |- _ => h end in
-  replace bs with (List.repeatz \[b] \[i] ++ bs[\[i]:]) in h
-      by (subst i; (* TODO heurisits for when to inline vars *)
-          bottom_up_simpl_in_goal;
-          syntactic_exact_deltavar (@eq_refl _ _)).
+  swap bs with (List.repeatz \[b] \[i] ++ bs[\[i]:]) in #(array (uint 8)).
+  prove (len bs = \[n]) as lenbs.
   loop invariant above i.
-  move lenbs before R.
-  lazymatch goal with h: _ < 2 ^ 8 |- _ => move h before R end.
-  assert (0 <= \[i] <= \[n]) by ZnWords.
-  clearbody i.
+  move lenbs before t.
+  prove (0 <= \[i] <= \[n]).
+  delete #(i = ??).
                                                                                 .**/
   while (i < n) /* decreases (n ^- i) */ {                                 /**. .**/
     store8(a + i, b);                                                      /**. .**/
-     i = i + 1;                                                            /**.
+     i = i + 1;                                                            /**. .**/
+  }                                                                        /**.
 
-     (* TODO if canceling is on same range with different values, assert
-        equality between values and automate proving list equality.
-        Here, little hope for a canonical form that both sides can reach. *)
-     1: replace (List.repeatz \[b] \[i'] ++ \[b] :: bs[\[i'] + 1:]) with
-             (List.repeatz \[b] \[i' ^+ /[1]] ++ bs[\[i' ^+ /[1]]:]) in *.
-     2: {
-       unfold List.repeatz.
-       replace (Z.to_nat \[i' ^+ /[1]]) with (Z.to_nat \[i'] + 1)%nat by ZnWords.
-       rewrite List.repeat_app.
-       rewrite <- List.app_assoc.
-       replace (\[i' ^+ /[1]]) with (\[i'] + 1) by ZnWords.
-       reflexivity.
-     }
+  (* TODO in series of List.app, try to merge each pair of two adjacent lists *)
+  unfold List.repeatz. subst i.
+  replace (Z.to_nat \[i' ^+ /[1]]) with (Z.to_nat \[i'] + 1)%nat by steps.
+  rewrite List.repeat_app.
+  rewrite <- List.app_assoc.
+  replace (\[i' ^+ /[1]]) with (\[i'] + 1) by steps.
+  reflexivity.
                                                                                 .**/
-  } /**. end while.                                                             .**/
 }                                                                          /**.
 Qed.
 
