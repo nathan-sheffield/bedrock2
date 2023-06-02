@@ -54,7 +54,15 @@ Section FlattenExpr1.
     flattenExpr ngs oResVar e = (s, resVar, ngs') ->
     0 <= FlatImp.stmt_size s <= ExprImp.expr_size e.
   Proof.
-    induction e; intros; destruct oResVar; simpl in *; simp; simpl;
+    induction e; intros; destruct oResVar;
+      try match goal with
+        | op: bopname |- _ => destruct op eqn:Eop
+        end;
+    simpl in *; simp; simpl;
+      repeat try match goal with
+        | H: match ?x with _ => _ end = _ |- _ => destruct x eqn:Ex
+        | |- _ => try unfold maybeFlattenImmediate in *; simpl
+        end;
       repeat match goal with
              | IH: _, H: _ |- _ => specialize IH with (1 := H)
              | |- context [?x / 4] => unique pose proof (Z.div_pos x 4)
@@ -383,7 +391,7 @@ Section FlattenExpr1.
       eapply @FlatImp.exec.seq.
       + eapply IHe; try eassumption. maps.
       + intros. simpl in *. simp.
-        eapply @FlatImp.exec.load; t_safe; rewrite ?add_0_r; try eassumption; solve_MetricLog.
+        eapply @FlatImp.exec.load; t_safe; rewrite ?word.add_0_r; try eassumption; solve_MetricLog.
 
     - (* expr.inlinetable *)
       repeat match goal with
@@ -411,7 +419,7 @@ Section FlattenExpr1.
           clear IHe1 IHe2. pose_flatten_var_ineqs. set_solver.
         * intros. simpl in *. simp. clear IHe1 IHe2.
           eapply @FlatImp.exec.op; t_safe; t_safe. 2 : solve_MetricLog.
-          eapply flattenExpr_valid_resVar in E1; maps.
+          eapply flattenExpr_valid_resVar in E1; simpl; maps.
 
     - (* expr.ite *)
       eapply seq_with_modVars.
@@ -730,7 +738,7 @@ Section FlattenExpr1.
         eapply @FlatImp.exec.seq.
         * eapply flattenExpr_correct_with_modVars; try eassumption; maps.
         * intros. simpl in *. simp.
-          eapply @FlatImp.exec.store; rewrite ?add_0_r; try eassumption.
+          eapply @FlatImp.exec.store; rewrite ?word.add_0_r; try eassumption.
           { eapply flattenExpr_valid_resVar in E; maps. }
           { repeat eexists; repeat (split || eassumption || solve_MetricLog); maps. }
 
@@ -895,7 +903,7 @@ Section FlattenExpr1.
           -- eassumption.
           -- do 2 eexists. ssplit; try eassumption.
              ++ simple eapply map.only_differ_putmany; eassumption.
-             ++ solve_MetricLog. 
+             ++ solve_MetricLog.
 
     - (* interact *)
       unfold flattenInteract in *. simp.

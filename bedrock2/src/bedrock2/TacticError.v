@@ -1,10 +1,7 @@
+Require Import Coq.Strings.String.
 (* Almost everyone importing this file will need strings in their error messages *)
-Require Import Coq.Strings.String. Open Scope string_scope.
-
-(* TODO The definition of dlist could/should be shared with compiler.util.Result *)
-Inductive dlist: Type :=
-| dnil
-| dcons{T: Type}(head: T)(tail: dlist).
+Export Coq.Strings.String.StringSyntax.
+Require Import coqutil.Datatypes.dlist.
 
 Declare Custom Entry ne_space_sep_dlist.
 Notation "x" := (dcons x dnil)
@@ -24,27 +21,22 @@ Notation "x" := (tactic_error x)
   (at level 0, x custom ne_space_sep_dlist at level 0, only printing)
 : tactic_error_scope. *)
 
-Notation "x !" := (tactic_error x)
+Notation "x !" := (tactic_error x%string)
   (at level 0, x custom ne_space_sep_dlist at level 0, format "'[' x  ! ']'", only printing)
 : tactic_error_scope.
 
-Notation "'Error:(' msg )" := (mk_tactic_error msg)
+Notation "'Error:(' msg )" := (mk_tactic_error msg%string)
   (at level 0, msg custom ne_space_sep_dlist at level 0, format "'Error:(' msg )")
   : tactic_error_scope.
 
-Ltac pose_err_silent e := let n := fresh "Error" in pose proof e as n.
-
-Ltac pose_err e :=
-  let n := fresh "Error" in
-  pose proof e as n;
-  let T := type of n in
-  idtac "Error:" T.
+Ltac pose_err e := let n := fresh "Error" in pose proof e as n.
+Ltac pose_and_idtac_err e := pose_err e; let t := type of e in idtac "Error:" t.
 
 Goal False.
-  pose_err_silent Error:("Here's a very long error message that will take more than one line to display and I wonder how it will be rendered").
-  pose_err_silent Error:("Here's a very long" (cons "really long" (cons "error message that" (cons "will take mooooooooooooooooooore than one line" nil))) "to display and I wonder how it will be rendered").
-  pose_err_silent Error:(4 "is not a" bool).
-  pose_err_silent Error:("just one string").
+  pose_err Error:("Here's a very long error message that will take more than one line to display and I wonder how it will be rendered").
+  pose_err Error:("Here's a very long" (cons "really long" (cons "error message that" (cons "will take mooooooooooooooooooore than one line" nil))) "to display and I wonder how it will be rendered").
+  pose_err Error:(4 "is not a" bool).
+  pose_err Error:("just one string").
 Abort.
 
 Ltac assert_no_error :=
@@ -52,3 +44,11 @@ Ltac assert_no_error :=
   | _: tactic_error _ |- _ => fail "You need to fix the error before continuing"
   | |- _ => idtac
   end.
+
+Ltac _test_error e :=
+  let expected := type of e in
+  lazymatch goal with
+  | H: tactic_error ?l |- _ => unify (tactic_error l) expected
+  end.
+
+Tactic Notation "test_error" open_constr(e) := _test_error e.

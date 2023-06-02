@@ -15,6 +15,7 @@ Require riscv.Platform.Memory.
 Require Import riscv.Spec.PseudoInstructions.
 Require Import riscv.Proofs.EncodeBound.
 Require Import riscv.Proofs.DecodeEncode.
+Require Import riscv.Utility.bverify.
 Require Import riscv.Platform.Run.
 Require Import riscv.Utility.MkMachineWidth.
 Require Import riscv.Utility.Monads. Import MonadNotations.
@@ -288,6 +289,9 @@ Section Connect.
     - rewrite N_Z_nat_conversions.Z2Nat.inj_pow; try blia. reflexivity.
   Qed.
 
+  #[export]
+  Instance BWM_RV32I : FlatToRiscvCommon.bitwidth_iset 32 RV32I. constructor. Defined.
+
   (* end to end, but still generic over the program *)
   Lemma end2end:
     (* Assumptions on the program logic level: *)
@@ -300,12 +304,12 @@ Section Connect.
                    WeakestPrecondition.cmd funspecs loop_body t m l bedrock2Inv) ->
     (* Assumptions on the compiler level: *)
     forall (instrs: list Instruction) positions (required_stack_space: Z),
-    compile_prog compile_ext_call ml (map.of_list funimplsList) = Success (instrs, positions, required_stack_space) ->
+    compile_prog compile_ext_call ml funimplsList = Success (instrs, positions, required_stack_space) ->
     required_stack_space <= word.unsigned (word.sub (stack_pastend ml) (stack_start ml)) / bytes_per_word ->
     word.unsigned (code_start ml) + Z.of_nat (Datatypes.length (instrencode instrs)) <=
       word.unsigned (code_pastend ml) ->
-    Forall (fun i : Instruction => verify i iset) instrs ->
-    ExprImp.valid_funs (map.of_list funimplsList) ->
+    bvalidInstructions iset instrs = true ->
+    valid_src_funs funimplsList = true ->
     (* Assumptions on the Kami level: *)
     kami_mem_contains_bytes (instrencode instrs) ml.(code_start) memInit ->
     forall (t: Kami.Semantics.LabelSeqT) (mFinal: KamiImplMachine),
@@ -352,7 +356,7 @@ Section Connect.
       intros.
       eapply P2establish.
       unfold initial_conditions.
-      exists (map.of_list funimplsList), instrs, positions, required_stack_space.
+      exists funimplsList, instrs, positions, required_stack_space.
       destr_RiscvMachine m0RV.
       subst.
       ssplit.

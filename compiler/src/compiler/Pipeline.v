@@ -51,6 +51,8 @@ Require Import coqutil.Tactics.autoforward.
 Require Import compiler.FitsStack.
 Require Import compiler.LowerPipeline.
 Require Import bedrock2.WeakestPreconditionProperties.
+Require Import compiler.UseImmediateDef.
+Require Import compiler.UseImmediate.
 Import Utility.
 
 Section WithWordAndMem.
@@ -132,6 +134,11 @@ Section WithWordAndMem.
                 List.length (compile_ext_call posmap1 pos1 stackoffset c) =
                 List.length (compile_ext_call posmap2 pos2 stackoffset c)).
 
+    Definition is5BitImmediate(x: Z) : bool :=
+      andb (Z.leb 0 x) (Z.ltb x 32).
+    Definition is12BitImmediate(x: Z) : bool :=
+      andb (Z.leb (-2048) x) (Z.ltb x 2048).
+
     Definition locals_based_call_spec{Var Cmd: Type}{locals: map.map Var word}
                (Exec: string_keyed_map (list Var * list Var * Cmd) ->
                       Cmd -> trace -> mem -> locals -> MetricLog ->
@@ -162,6 +169,12 @@ Section WithWordAndMem.
       Valid := map.forall_values ParamsNoDup;
       Call := locals_based_call_spec FlatImp.exec;
     |}.
+
+    (* |                 *)
+    (* | UseImmediate    *)
+    (* V                 *)
+    (* FlatWithStrVars   *)
+
     (* |                 *)
     (* | RegAlloc        *)
     (* V                 *)
@@ -246,6 +259,46 @@ Section WithWordAndMem.
       - simpl. intros. fwd. eauto using map.getmany_of_list_extends.
     Qed.
 
+    Lemma useimmediate_functions_NoDup: forall funs funs',
+        (forall f argnames retnames body,
+          map.get funs f = Some (argnames, retnames, body) -> NoDup argnames /\ NoDup retnames) ->
+        (useimmediate_functions is5BitImmediate is12BitImmediate) funs = Success funs' ->
+        forall f argnames retnames body,
+          map.get funs' f = Some (argnames, retnames, body) -> NoDup argnames /\ NoDup retnames.
+    Proof.
+      unfold useimmediate_functions. intros.
+      eapply map.try_map_values_bw in H0.
+      2: { eassumption.  }
+      unfold useimmediate_function in *.
+      fwd.
+      eapply H.
+      eassumption.
+    Qed.
+
+    Lemma useimmediate_correct: phase_correct FlatWithStrVars FlatWithStrVars (useimmediate_functions is5BitImmediate is12BitImmediate).
+    Proof.
+      unfold FlatWithStrVars.
+      split; cbn.
+      { unfold map.forall_values, ParamsNoDup. intros.
+        destruct v as  ((argnames & retnames) & body).
+        eapply useimmediate_functions_NoDup; try eassumption.
+        intros. specialize H0 with (1 := H2).
+        simpl in H0. assumption.
+      }
+
+      unfold locals_based_call_spec. intros. fwd.
+      pose proof H0 as GI.
+      unfold  useimmediate_functions in GI.
+      eapply map.try_map_values_fw in GI. 2: eassumption.
+      unfold useimmediate_function in GI. fwd.
+      eexists _, _, _, _. split. 1: eassumption. split. 1: eassumption.
+      intros.
+      eapply exec.weaken.
+      - eapply useImmediate_correct_aux.
+        all: eauto.
+      - eauto.
+    Qed.
+
     Lemma regalloc_functions_NoDup: forall funs funs',
         regalloc_functions funs = Success funs' ->
         forall f argnames retnames body,
@@ -256,7 +309,8 @@ Section WithWordAndMem.
       eapply map.try_map_values_bw in E. 2: eassumption.
       fwd.
       eapply map.get_forall_success in E0. 2: eassumption.
-      unfold lookup_and_check_func, check_func, assert in *. fwd.
+      unfold lookup_and_check_func, check_func, assert in *.
+      destruct v1 as ((args1 & rets1) & body1). fwd.
       rewrite <- E1, <- E4.
       split; apply List.NoDup_dedup.
     Qed.
@@ -379,45 +433,83 @@ Section WithWordAndMem.
       - eapply flat_to_riscv_correct; eassumption.
     Qed.
 
-    Definition compile:
+    Definition composed_compile:
       string_keyed_map (list string * list string * cmd) ->
       result (list Instruction * string_keyed_map Z * Z) :=
       (compose_phases flatten_functions
+      (compose_phases (useimmediate_functions is5BitImmediate is12BitImmediate)
       (compose_phases regalloc_functions
       (compose_phases spill_functions
-                      (riscvPhase compile_ext_call)))).
+                      (riscvPhase compile_ext_call))))).
 
-    Lemma composed_compiler_correct: phase_correct SrcLang RiscvLang compile.
+    Lemma composed_compiler_correct: phase_correct SrcLang RiscvLang composed_compile.
     Proof.
-      unfold compile.
+      unfold composed_compile.
       exact (compose_phases_correct flattening_correct
+            (compose_phases_correct useimmediate_correct
             (compose_phases_correct regalloc_correct
             (compose_phases_correct spilling_correct
-                                    riscv_phase_correct))).
+                                    riscv_phase_correct)))).
+    Qed.
+
+    Definition compile(funs: list (string * (list string * list string * cmd))):
+      result (list Instruction * list (string * Z) * Z) :=
+      match composed_compile (map.of_list funs) with
+      | Success (insts, pos, space) => Success (insts, map.tuples pos, space)
+      | Failure e => Failure e
+      end.
+
+    Definition valid_src_fun: (string * (list string * list string * cmd)) -> bool :=
+      fun '(name, (args, rets, body)) =>
+        andb (List.list_eqb String.eqb (List.dedup String.eqb args) args)
+             (List.list_eqb String.eqb (List.dedup String.eqb rets) rets).
+
+    Lemma valid_src_fun_correct: forall name f,
+        valid_src_fun (name, f) = true -> ExprImp.valid_fun f.
+    Proof.
+      unfold valid_src_fun, valid_fun. intros. destruct f as ((args & rets) & body).
+      fwd. split.
+      - rewrite <- Hp0. apply List.NoDup_dedup.
+      - rewrite <- Hp1. apply List.NoDup_dedup.
+    Qed.
+
+    Definition valid_src_funs: list (string * (list string * list string * cmd)) -> bool :=
+      List.forallb valid_src_fun.
+
+    Lemma valid_src_funs_correct fs:
+        valid_src_funs fs = true ->
+        ExprImp.valid_funs (map.of_list fs).
+    Proof.
+      unfold valid_funs. induction fs; intros.
+      - simpl in H0. rewrite map.get_empty in H0. discriminate.
+      - destruct a as (name & body). simpl in H0. rewrite map.get_put_dec in H0. fwd.
+        destruct_one_match_hyp.
+        + fwd. eapply valid_src_fun_correct. eassumption.
+        + eapply IHfs; eassumption.
     Qed.
 
     (* restate composed_compiler_correct by unfolding definitions used to compose phases *)
     Lemma compiler_correct: forall
         (* input of compilation: *)
-        (functions: string_keyed_map (list string * list string * cmd))
+        (functions: list (string * (list string * list string * cmd)))
         (* output of compilation: *)
-        (instrs: list Instruction) (finfo: string_keyed_map Z) (req_stack_size: Z)
+        (instrs: list Instruction) (finfo: list (string * Z)) (req_stack_size: Z)
         (* function we choose to call: *)
         (fname: string)
         (* high-level initial state & post on final state: *)
         (t: trace) (mH: mem) (argvals: list word) (post: trace -> mem -> list word -> Prop),
-        ExprImp.valid_funs functions ->
+        valid_src_funs functions = true ->
         compile functions = Success (instrs, finfo, req_stack_size) ->
         (exists (argnames retnames: list string) (fbody: cmd) l,
-            map.get functions fname = Some (argnames, retnames, fbody) /\
+            map.get (map.of_list functions) fname = Some (argnames, retnames, fbody) /\
             map.of_list_zip argnames argvals = Some l /\
             forall mc,
-              Semantics.exec functions fbody t mH l mc
+              Semantics.exec (map.of_list functions) fbody t mH l mc
                 (fun t' m' l' mc' => exists retvals: list word,
                      map.getmany_of_list l' retnames = Some retvals /\
                      post t' m' retvals)) ->
         exists (f_rel_pos: Z),
-          map.get finfo fname = Some f_rel_pos /\
+          map.get (map.of_list finfo) fname = Some f_rel_pos /\
           forall (* low-level machine on which we're going to run the compiled program: *)
                  (initial: MetricRiscvMachine)
                  (* ghost vars that help describe the low-level machine: *)
@@ -441,9 +533,15 @@ Section WithWordAndMem.
       intros.
       pose proof (phase_preserves_post composed_compiler_correct) as C.
       unfold Call, SrcLang, RiscvLang, locals_based_call_spec, riscv_call in C.
-      match goal with H: _ |- _ => specialize C with (1 := H) end.
-      match goal with H: _ |- _ => specialize C with (1 := H) end.
-      match goal with H: _ |- _ => specialize C with (1 := H) end.
+      eapply valid_src_funs_correct in H.
+      specialize C with (1 := H).
+      assert (composed_compile (map.of_list functions) =
+                Success (instrs, map.of_list finfo, req_stack_size)) as H0'. {
+        clear -H0 string_keyed_map_ok. unfold compile in H0. fwd.
+        rewrite map.of_list_tuples. reflexivity.
+      }
+      specialize C with (1 := H0').
+      specialize C with (1 := H1).
       cbv iota in C.
       fwd. eauto 10.
     Qed.
@@ -457,13 +555,13 @@ Section WithWordAndMem.
       end.
 
     (* combines the above theorem with WeakestPrecondition soundness,
-       and makes `map.get finfo fname` a hypothesis rather than conclusion because
+       and makes `map.get (map.of_list finfo) fname` a hyp rather than conclusion because
        in concrete instantiations, users need to lookup that position themselves anyways *)
     Lemma compiler_correct_wp: forall
         (* input of compilation: *)
         (fs: list (string * (list string * list string * cmd)))
         (* output of compilation: *)
-        (instrs: list Instruction) (finfo: string_keyed_map Z) (req_stack_size: Z)
+        (instrs: list Instruction) (finfo: list (string * Z)) (req_stack_size: Z)
         (* function we choose to call: *)
         (fname: string) (f_rel_pos: Z)
         (* high-level initial state & post on final state: *)
@@ -472,11 +570,11 @@ Section WithWordAndMem.
         (stack_lo stack_hi ret_addr p_funcs: word) (Rdata Rexec: mem -> Prop)
         (* low-level machine on which we're going to run the compiled program: *)
         (initial: MetricRiscvMachine),
-        ExprImp.valid_funs (map.of_list fs) ->
+        valid_src_funs fs = true ->
         NoDup (map fst fs) ->
-        compile (map.of_list fs) = Success (instrs, finfo, req_stack_size) ->
+        compile fs = Success (instrs, finfo, req_stack_size) ->
         WeakestPrecondition.call fs fname t mH argvals post ->
-        map.get finfo fname = Some f_rel_pos ->
+        map.get (map.of_list finfo) fname = Some f_rel_pos ->
         req_stack_size <= word.unsigned (word.sub stack_hi stack_lo) / bytes_per_word ->
         word.unsigned (word.sub stack_hi stack_lo) mod bytes_per_word = 0 ->
         initial.(getPc) = word.add p_funcs (word.of_Z f_rel_pos) ->

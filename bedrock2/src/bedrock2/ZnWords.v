@@ -47,43 +47,6 @@ Ltac cleanup_for_ZModArith :=
 Ltac simpl_list_length_exprs :=
   repeat ( rewrite ?@List.length_skipn, ?@List.firstn_length, ?@List.app_length, ?@List.length_cons, ?@List.length_nil in * ).
 
-(* word laws for shifts where the shift amount is a Z instead of a word *)
-Module word.
-  Section WithWord.
-    Context {width} {word : word.word width} {word_ok : word.ok word}.
-
-    Lemma unsigned_slu_shamtZ: forall (x: word) (a: Z),
-        0 <= a < width ->
-        word.unsigned (word.slu x (word.of_Z a)) = word.wrap (Z.shiftl (word.unsigned x) a).
-    Proof.
-      intros. assert (width <= 2 ^ width) by (apply Zpow_facts.Zpower2_le_lin; blia).
-      rewrite word.unsigned_slu; rewrite word.unsigned_of_Z; unfold word.wrap; rewrite (Z.mod_small a); blia.
-    Qed.
-
-    Lemma unsigned_sru_shamtZ: forall (x: word) (a: Z),
-        0 <= a < width ->
-        word.unsigned (word.sru x (word.of_Z a)) = Z.shiftr (word.unsigned x) a.
-    Proof.
-      intros. assert (width <= 2 ^ width) by (apply Zpow_facts.Zpower2_le_lin; blia).
-      rewrite word.unsigned_sru_nowrap; rewrite word.unsigned_of_Z;
-        unfold word.wrap; rewrite (Z.mod_small a); blia.
-    Qed.
-
-    Lemma signed_srs_shamtZ: forall (x: word) (a: Z),
-        0 <= a < width ->
-        word.signed (word.srs x (word.of_Z a)) = Z.shiftr (word.signed x) a.
-    Proof.
-      intros. assert (width <= 2 ^ width) by (apply Zpow_facts.Zpower2_le_lin; blia).
-      rewrite word.signed_srs_nowrap; rewrite word.unsigned_of_Z;
-        unfold word.wrap; rewrite (Z.mod_small a); blia.
-    Qed.
-
-    Lemma unsigned_if: forall (b: bool) (thn els : word),
-        word.unsigned (if b then thn else els) = if b then word.unsigned thn else word.unsigned els.
-    Proof. intros. destruct b; reflexivity. Qed.
-  End WithWord.
-End word.
-
 Ltac wordOps_to_ZModArith_getEq t :=
   match t with
   | context[@word.unsigned ?wi ?wo (word.of_Z ?z)] => constr:(@word.unsigned_of_Z wi wo _ z)
@@ -111,7 +74,6 @@ Ltac wordOps_to_ZModArith_getEq t :=
   | context[@word.eqb ?wi ?wo ?x ?y] => constr:(@word.unsigned_eqb wi wo _ x y)
   | context[@word.ltu ?wi ?wo ?x ?y] => constr:(@word.unsigned_ltu wi wo _ x y)
   | context[@word.lts ?wi ?wo ?x ?y] => constr:(@word.signed_lts wi wo _ x y)
-  | context[@word.unsigned ?wi ?wo (if ?b then ?thn else ?els)] => constr:(@word.unsigned_if wi wo _ b thn els)
   | context[Z.shiftr ?a ?n] => constr:(Z.shiftr_div_pow2 a n)
   | context[Z.shiftl ?a ?n] => constr:(Z.shiftl_mul_pow2 a n)
   end.
@@ -187,12 +149,19 @@ Ltac pose_word_ok :=
 Ltac word_eqs_to_Z_eqs :=
   repeat  match goal with
           | H: @eq (@word.rep ?wi ?inst) _ _ |- _ => apply (f_equal (@word.unsigned wi inst)) in H
+          | H: not (@eq (@word.rep ?wi ?inst) _ _) |- _ => apply (@word.unsigned_inj' wi inst _) in H
           end.
 
 Ltac ZnWords_pre :=
   try eapply word.unsigned_inj;
   lazymatch goal with
-  | |- ?G => is_lia G
+  | |- ?G => is_lia G;
+             (* if there are evars in the goal, the preprocessing might affect the
+                evars or their evarcontexts in tricky ways that no one wants to
+                debug, so we should fail here, except if the goal is contradictory,
+                so we do exfalso *)
+             tryif has_evar G then exfalso else idtac
+
   end;
   (* if the word.ok lives in another ok record, that one will get cleared,
      so we first pose a word.ok, which will be recognized and not get cleared *)

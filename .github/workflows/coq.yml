@@ -4,23 +4,30 @@ name: Coq
 
 on:
   push:
+    branches:
+      - master
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     strategy:
       matrix:
         env:
-        - { COQ_VERSION: "8.15.0", COQ_PACKAGE: "coq-8.15.0 libcoq-8.15.0-ocaml-dev", PPA: "ppa:jgross-h/many-coq-versions-ocaml-4-11" }
+        - { COQ_VERSION: "8.16.0", COQ_PACKAGE: "coq-8.16.0 libcoq-8.16.0-ocaml-dev", PPA: "ppa:jgross-h/many-coq-versions-ocaml-4-11" }
         - { COQ_VERSION: "master", COQ_PACKAGE: "coq libcoq-core-ocaml-dev"         , PPA: "ppa:jgross-h/coq-master-daily" }
       fail-fast: false
 
     name: build (${{ matrix.env.COQ_VERSION }})
 
     env: ${{ matrix.env }}
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.env.COQ_VERSION }}-${{ github.head_ref || github.run_id }}
+      cancel-in-progress: true
 
     steps:
     - name: install Coq
@@ -56,7 +63,7 @@ jobs:
         echo | coqtop
         echo "::endgroup::"
     - uses: actions/checkout@v3
-    - name: submodules-init
-      run: git submodule update --init --recursive
+      with:
+        submodules: recursive
     - name: make
       run: TIMED=1 make

@@ -1726,10 +1726,9 @@ Section Equiv.
               | None => word.of_Z 0
               end) in *.
       2,4,6,8,10,12:
-        unfold getReg; repeat destruct_one_match; try reflexivity;
-      [ clearbody rs1; subst rs1; discriminate
-      | exfalso;
-        pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+        unfold getReg; repeat destruct_one_match; try reflexivity; exfalso;
+      [ Lia.lia
+      | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
         change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
         Lia.lia ].
 
@@ -1777,10 +1776,9 @@ Section Equiv.
          else map.put rrf rd newval) in *
       end.
       2: {
-        unfold setReg; repeat destruct_one_match; try reflexivity;
-        [ clearbody rd; subst rd; discriminate
-        | exfalso;
-          pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
+        unfold setReg; repeat destruct_one_match; try reflexivity; exfalso;
+        [ Lia.lia
+        | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
           Lia.lia ].
       }
       rt.
@@ -1902,10 +1900,9 @@ Section Equiv.
               | None => word.of_Z 0
               end) in *.
       2,4,6,8,10,12:
-        unfold getReg; repeat destruct_one_match; try reflexivity;
-      [ clearbody rs1; subst rs1; discriminate
-      | exfalso;
-        pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+        unfold getReg; repeat destruct_one_match; try reflexivity; exfalso;
+      [ Lia.lia
+      | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
         change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
         Lia.lia ].
 
@@ -1937,12 +1934,9 @@ Section Equiv.
                (if Z.eq_dec rd Register0
                 then rrf
                 else map.put rrf rd newval) in *;
-               [ | unfold setReg; repeat destruct_one_match; try reflexivity;
-                   [ clearbody rd; subst rd; discriminate
-                   | exfalso;
-                     pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
-                     Lia.lia ]
-               ]
+               [ | unfold setReg; repeat destruct_one_match; try reflexivity; exfalso;
+                   pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
+                   Lia.lia ]
            end.
 
       all: rt.
@@ -2172,10 +2166,9 @@ Section Equiv.
               | None => word.of_Z 0
               end) in *.
       2,4,6,8,10,12:
-        unfold getReg; repeat destruct_one_match; try reflexivity;
-      [ clearbody rs1; subst rs1; discriminate
-      | exfalso;
-        pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+        unfold getReg; repeat destruct_one_match; try reflexivity; exfalso;
+      [ Lia.lia
+      | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
         change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
         Lia.lia ].
 
@@ -2221,9 +2214,8 @@ Section Equiv.
            then rrf
            else map.put rrf rd newval) in *
       end.
-      2: { unfold setReg; repeat destruct_one_match; try reflexivity;
-         [ discriminate
-         | contradiction ].
+      2: { unfold setReg; repeat destruct_one_match; try reflexivity; [ | contradiction ].
+           exfalso. clear -E. intuition Lia.lia.
       }
 
       rt.
@@ -2335,10 +2327,9 @@ Section Equiv.
               | None => word.of_Z 0
               end) in *.
       2,4,6,8,10,12:
-        unfold getReg; repeat destruct_one_match; try reflexivity;
-      [ clearbody rs1; subst rs1; discriminate
-      | exfalso;
-        pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+        unfold getReg; repeat destruct_one_match; try reflexivity; exfalso;
+      [ Lia.lia
+      | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
         change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
         Lia.lia ].
 
@@ -2371,11 +2362,8 @@ Section Equiv.
                 then rrf
                 else map.put rrf rd newval) in *;
                [ | unfold setReg; repeat destruct_one_match; try reflexivity;
-                   [ discriminate
-                   | exfalso;
-                     pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
-                     Lia.lia ]
-               ]
+                   pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
+                   exfalso; Lia.lia ]
            end.
 
       all: rt.
@@ -2494,9 +2482,9 @@ Section Equiv.
               end) in *
           by (
             unfold getReg; repeat destruct_one_match; try reflexivity;
-            [ clearbody rs1; subst rs1; discriminate
-            | exfalso;
-              pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+            exfalso;
+            [ Lia.lia
+            | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
               change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
               Lia.lia ]).
 
@@ -2510,9 +2498,9 @@ Section Equiv.
               end) in *
           by (
             unfold getReg; repeat destruct_one_match; try reflexivity;
-            [ clearbody rs2; subst rs2; discriminate
-            | exfalso;
-              pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
+            exfalso;
+            [ Lia.lia
+            | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
               change (bitSlice (@kunsigned 32 kinst) 20 25) with rs2 in HR;
               Lia.lia ]).
 
@@ -2664,9 +2652,9 @@ Section Equiv.
               end) in *
           by (
             unfold getReg; repeat destruct_one_match; try reflexivity;
-            [ clearbody rs1; subst rs1; discriminate
-            | exfalso;
-              pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+            exfalso;
+            [ Lia.lia
+            | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
               change (bitSlice (@kunsigned 32 kinst) 15 20) with rs1 in HR;
               Lia.lia ]).
       all: repeat r; t.
@@ -2678,9 +2666,9 @@ Section Equiv.
               end) in *
           by (
             unfold getReg; repeat destruct_one_match; try reflexivity;
-            [ clearbody rs2; subst rs2; discriminate
-            | exfalso;
-              pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
+            exfalso;
+            [ Lia.lia
+            | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
               change (bitSlice (@kunsigned 32 kinst) 20 25) with rs2 in HR;
               Lia.lia ]).
 
@@ -2945,9 +2933,9 @@ Section Equiv.
                          end) in *
                      by (
                        unfold getReg; repeat destruct_one_match; try reflexivity;
-                       [ clearbody rs1; subst rs1; discriminate
-                       | exfalso;
-                         pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+                       exfalso;
+                       [ Lia.lia
+                       | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
                          Lia.lia ]))
              | H: let _ := getReg ?rff ?rs2 in _ |- _ =>
                  (replace (getReg rrf rs2) with
@@ -2958,9 +2946,9 @@ Section Equiv.
                          end) in *
                      by (
                        unfold getReg; repeat destruct_one_match; try reflexivity;
-                       [ clearbody rs2; subst rs2; discriminate
-                       | exfalso;
-                         pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
+                       exfalso;
+                       [ Lia.lia
+                       | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
                          Lia.lia ]))
              | H: let _ := setReg ?rd ?newval ?rrf in _ |- _ =>
                  replace (setReg rd newval rrf) with
@@ -2968,9 +2956,9 @@ Section Equiv.
                   then rrf
                   else map.put rrf rd newval) in *;
                  [ | unfold setReg; repeat destruct_one_match; try reflexivity;
-                     [ try (clearbody rd; subst rd); discriminate
-                     | exfalso;
-                       pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
+                     exfalso;
+                     [ Lia.lia
+                     | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
                        Lia.lia ]
                  ]
              | _ => r || t
@@ -3001,7 +2989,9 @@ Section Equiv.
 
     { (* [pc_related_and_valid] for `JAL` *)
       subst newPC jimm20.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E. reflexivity.
+      }
       clear; red.
       cbv [Utility.add
              ZToReg MachineWidth_XLEN
@@ -3014,7 +3004,10 @@ Section Equiv.
 
     { (* [pc_related_and_valid] for `JALR` *)
       subst newPC oimm12 v rs1.
-      split; [apply AddrAligned_consistent; assumption|red].
+      split. {
+        apply AddrAligned_consistent. rewrite E. reflexivity.
+      }
+      red.
       cbv [MachineWidth_XLEN
              ZToReg Utility.add and
              word.add word.and word wordW KamiWord.word
@@ -3299,9 +3292,9 @@ Section Equiv.
                             end) in *
                         by (
                           unfold getReg; repeat destruct_one_match; try reflexivity;
-                          [ clearbody rs1; subst rs1; discriminate
-                          | exfalso;
-                            pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
+                          exfalso;
+                          [ Lia.lia
+                          | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 15 20 as HR;
                             Lia.lia ]))
                 | H: let _ := getReg ?rff ?rs2 in _ |- _ =>
                     (replace (getReg rrf rs2) with
@@ -3312,9 +3305,9 @@ Section Equiv.
                             end) in *
                         by (
                           unfold getReg; repeat destruct_one_match; try reflexivity;
-                          [ clearbody rs2; subst rs2; discriminate
-                          | exfalso;
-                            pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
+                          exfalso;
+                          [ Lia.lia
+                          | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 20 25 as HR;
                             Lia.lia ]))
                 | H: let _ := setReg ?rd ?newval ?rrf in _ |- _ =>
                     replace (setReg rd newval rrf) with
@@ -3322,11 +3315,10 @@ Section Equiv.
                      then rrf
                      else map.put rrf rd newval) in *;
                     [ | unfold setReg; repeat destruct_one_match; try reflexivity;
-                       [ try (clearbody rd; subst rd);
-                         try (replace (bitSlice (@kunsigned 32 kinst) 7 12) with 0 in *; []);
-                         discriminate
-                       | exfalso;
-                         pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
+                        exfalso;
+                       [ try (replace (bitSlice (@kunsigned 32 kinst) 7 12) with 0 in *; []);
+                         Lia.lia
+                       | pose proof bitSlice_range_ex (@kunsigned 32 kinst) 7 12 as HR;
                          Lia.lia ]
                     ]
                 | _ => r || t
@@ -3361,7 +3353,9 @@ Section Equiv.
 
     { (* jal *)
       subst newPC jimm20.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E. reflexivity.
+      }
       clear; red.
       cbv [Utility.add
              ZToReg MachineWidth_XLEN
@@ -3374,7 +3368,10 @@ Section Equiv.
 
     { (* jalr *)
       subst newPC oimm12 v rs1.
-      split; [apply AddrAligned_consistent; assumption|red].
+      split. {
+        apply AddrAligned_consistent. rewrite E. reflexivity.
+      }
+      red.
       cbv [MachineWidth_XLEN
              ZToReg Utility.add and
              word.add word.and word wordW KamiWord.word
@@ -3385,7 +3382,9 @@ Section Equiv.
 
     { (* beq(eq) *)
       subst newPC sbimm12.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E0. reflexivity.
+      }
       clear; red.
       cbv [Utility.add
              ZToReg MachineWidth_XLEN
@@ -3413,13 +3412,13 @@ Section Equiv.
       end.
       { exfalso; subst v v0 rs1 rs2.
         regs_get_red E.
-        cbv [reg_eqb MachineWidth_XLEN word.eqb word wordW KamiWord.word] in E.
-        apply weqb_false in E.
         apply N2Z.inj, wordToN_inj in e1; auto.
       }
       { cbv [negb].
         subst addr sbimm12.
-        split; [apply AddrAligned_consistent; assumption|].
+        split. {
+          apply AddrAligned_consistent. rewrite E0. reflexivity.
+        }
         clear; red.
         cbv [Utility.add
                ZToReg MachineWidth_XLEN
@@ -3438,22 +3437,19 @@ Section Equiv.
       { apply pc_related_plus4; red; eauto. }
       { exfalso; subst v v0 rs1 rs2.
         regs_get_red E.
-        cbv [reg_eqb MachineWidth_XLEN word.eqb word wordW KamiWord.word] in E.
-        apply Bool.negb_false_iff in E; apply weqb_sound in E.
         congruence.
       }
     }
 
     { (* blt(lt) *)
       cbv [evalBinBitBool].
-      cbv [signed_less_than
-             MachineWidth_XLEN
-             word.lts word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wslt_dec _ _); [|discriminate].
+      destruct (wslt_dec _ _); [|exfalso; apply n; apply E].
       subst addr sbimm12.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E0. reflexivity.
+      }
       clear; red.
       cbv [Utility.add
              ZToReg MachineWidth_XLEN
@@ -3466,25 +3462,23 @@ Section Equiv.
 
     { (* blt(not lt) *)
       cbv [evalBinBitBool].
-      cbv [signed_less_than
-             MachineWidth_XLEN
-             word.lts word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wslt_dec _ _); [discriminate|].
+      destruct (wslt_dec _ _).
+      { exfalso. eapply Z.le_ngt in E. apply E. apply w. }
       apply pc_related_plus4; red; eauto.
     }
 
     { (* bge(ge) *)
       cbv [evalBinBitBool].
-      cbv [signed_less_than
-             MachineWidth_XLEN
-             word.lts word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wslt_dec _ _); [discriminate|].
+      destruct (wslt_dec _ _).
+      { exfalso. eapply Z.le_ngt in E. apply E. apply w. }
       subst addr sbimm12.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E0. reflexivity.
+      }
       clear; red.
       cbv [negb Utility.add
                 ZToReg MachineWidth_XLEN
@@ -3497,24 +3491,30 @@ Section Equiv.
 
     { (* bge(not ge) *)
       cbv [evalBinBitBool].
-      cbv [signed_less_than
-             MachineWidth_XLEN
-             word.lts word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wslt_dec _ _); [|discriminate].
+      destruct (wslt_dec _ _); [|exfalso; apply n; apply E].
       apply pc_related_plus4; red; eauto.
     }
 
     { (* bltu(ltu) *)
       cbv [evalBinBitBool].
-      cbv [ltu MachineWidth_XLEN
-               word.ltu word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wlt_dec _ _); [|discriminate].
+      destruct (wlt_dec _ _).
+      2: {
+        exfalso.
+        lazymatch type of E with
+        | word.unsigned ?x < word.unsigned ?y =>
+            change (Z.of_N (wordToN x) < Z.of_N (wordToN y)) in E
+        end.
+        eapply N2Z.inj_lt in E.
+        apply n. apply E.
+      }
       subst addr sbimm12.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E0. reflexivity.
+      }
       clear; red.
       cbv [Utility.add
              ZToReg MachineWidth_XLEN
@@ -3527,23 +3527,35 @@ Section Equiv.
 
     { (* bltu(not ltu) *)
       cbv [evalBinBitBool].
-      cbv [ltu MachineWidth_XLEN
-               word.ltu word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wlt_dec _ _); [discriminate|].
+      destruct (wlt_dec _ _). {
+        exfalso.
+        lazymatch type of E with
+        | word.unsigned ?x <= word.unsigned ?y =>
+            change (Z.of_N (wordToN x) <= Z.of_N (wordToN y)) in E
+        end.
+        eapply N2Z.inj_le in E. eapply N.lt_nge in w. apply w. apply E.
+      }
       apply pc_related_plus4; red; eauto.
     }
 
     { (* bgeu(geu) *)
       cbv [evalBinBitBool].
-      cbv [ltu MachineWidth_XLEN
-               word.ltu word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wlt_dec _ _); [discriminate|].
+      destruct (wlt_dec _ _). {
+        exfalso.
+        lazymatch type of E with
+        | word.unsigned ?x <= word.unsigned ?y =>
+            change (Z.of_N (wordToN x) <= Z.of_N (wordToN y)) in E
+        end.
+        eapply N2Z.inj_le in E. eapply N.lt_nge in w. apply w. apply E.
+      }
       subst addr sbimm12.
-      split; [apply AddrAligned_consistent; assumption|].
+      split. {
+        apply AddrAligned_consistent. rewrite E0. reflexivity.
+      }
       clear; red.
       cbv [negb Utility.add
                 ZToReg MachineWidth_XLEN
@@ -3556,11 +3568,10 @@ Section Equiv.
 
     { (* bgeu(not geu) *)
       cbv [evalBinBitBool].
-      cbv [ltu MachineWidth_XLEN
-               word.ltu word wordW KamiWord.word] in E.
       subst v v0 rs1 rs2.
       regs_get_red E.
-      destruct (wlt_dec _ _); [|discriminate].
+      destruct (wlt_dec _ _).
+      2: { exfalso. apply n. eapply N2Z.inj_lt. apply E. }
       apply pc_related_plus4; red; eauto.
     }
 

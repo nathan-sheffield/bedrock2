@@ -100,6 +100,7 @@ Section LightbulbSpec.
 
   Definition LAN9250_WRITE : byte := Byte.x02.
   Definition HW_CFG : Z := 0x074.
+  Definition TX_DATA_FIFO : Z := 0x20.
 
   Definition lan9250_write4 (a v : word) t :=
     exists a0 a1 b0 b1 b2 b3, (
@@ -147,6 +148,19 @@ Section LightbulbSpec.
     lan9250_readpacket recv) ioh /\
     Z.land (word.unsigned info) ((2^8-1)*2^16) <> 0 /\
     Z.of_nat (List.length recv) = word.unsigned (lan9250_decode_length status).
+
+  Fixpoint lan9250_writepacket (bs : list byte) :=
+    match bs with
+    | nil => eq nil
+    | cons v0 (cons v1 (cons v2 (cons v3 bs))) =>
+      lan9250_write4 (word.of_Z TX_DATA_FIFO) (word.of_Z (LittleEndianList.le_combine (cons v0 (cons v1 (cons v2 (cons v3 nil)))))) +++
+      lan9250_writepacket bs
+    | _ => constraint False (* TODO: padding? *)
+    end.
+  Definition lan9250_send (send : list byte) : _ -> Prop :=
+    lan9250_write4 (word.of_Z TX_DATA_FIFO) (word.or (word.or (word.of_Z (2^13)) ((word.of_Z (2^12)))) (word.of_Z (# (List.length send)))) +++
+    lan9250_write4 (word.of_Z TX_DATA_FIFO) (word.of_Z (# (List.length send))) +++
+    lan9250_writepacket send.
 
   Definition lan9250_boot_attempt : list OP -> Prop :=
     (fun attempt => exists v, lan9250_fastread4 (word.of_Z (0x64)) v attempt

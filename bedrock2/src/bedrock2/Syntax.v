@@ -21,12 +21,21 @@ Module expr.
   | op (op: bopname) (e1 e2: expr)
   | ite (c e1 e2: expr). (* if-then-else expression ("ternary if") *)
 
-  Notation lazy_and e1 e2 := (ite e1 e2 (expr.literal Z0)).
+  Local Notation C0 := (expr.literal Z0).
+  Local Notation C1 := (expr.literal (Zpos xH)).
 
-  (* If e1 is nonzero, both returning 1 and returning e1 could make sense,
-     but we follow C, which returns 1:
-     https://stackoverflow.com/questions/30621389/short-circuiting-of-non-booleans *)
-  Notation lazy_or e1 e2 := (ite e1 (expr.literal (Zpos xH)) e2).
+  (* Definition instead of Notation so that Ltac knows whether we meant "e == 0"
+     and can treat e as an integer, or "! e", can can tread e as a boolean *)
+  Definition not e := expr.op bopname.eq e C0.
+
+  Notation to_bool e := (expr.op bopname.ltu C0 e) (only parsing).
+
+  (* lazy and/or always return 0 or 1 (like in C),
+     even if (some of) their arguments are non-boolean *)
+
+  Notation lazy_and e1 e2 := (ite e1 (to_bool e2) C0).
+  Notation lazy_or e1 e2 := (ite e1 C1 (to_bool e2)).
+
 End expr. Notation expr := expr.expr.
 
 Module cmd.
@@ -44,15 +53,10 @@ Module cmd.
   | interact (binds : list String.string) (action : String.string) (args: list expr).
 End cmd. Notation cmd := cmd.cmd.
 
-Definition func : Type := String.string * (list String.string * list String.string * cmd).
-#[deprecated(note="Use bedrock2.Syntax.func instead.")]
-Notation function := func.
-#[deprecated(note="Use bedrock2.Syntax.func instead.")]
-Notation bedrock_func := func.
+Definition func : Type := (list String.string * list String.string * cmd).
 
 Module Coercions.
   Import String.
   Coercion expr.var : string >-> expr.
   Coercion expr.literal : Z >-> expr.
-  Coercion name_of_func (f : func) := fst f.
 End Coercions.

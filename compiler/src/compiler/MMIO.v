@@ -92,9 +92,6 @@ Proof.
     repeat split; (blia || assumption).
 Qed.
 
-Global Instance RV32I_bitwidth: FlatToRiscvCommon.bitwidth_iset 32 RV32I.
-Proof. reflexivity. Qed.
-
 Local Arguments Z.mul: simpl never.
 Local Arguments Z.add: simpl never.
 Local Arguments Z.of_nat: simpl never.
@@ -104,6 +101,7 @@ Local Arguments Z.sub: simpl never.
 Local Arguments Registers.reg_class.all: simpl never.
 
 Section MMIO1.
+  Context {iset : InstructionSet} {bitwidth_iset : FlatToRiscvCommon.bitwidth_iset 32 iset}.
   Context {word: Word.Interface.word 32}.
   Context {word_ok: word.ok word}.
   Context {word_riscv_ok: word.riscv_ok word}.
@@ -144,7 +142,7 @@ Section MMIO1.
       (SSeq (SLit addr magicMMIOAddrLit)
             (SLoop (SLoad Syntax.access_size.four i addr 0)
                    (CondNez i)
-                   (SSeq (SOp s Syntax.bopname.add i i)
+                   (SSeq (SOp s Syntax.bopname.add i (Var i))
                          (SStore Syntax.access_size.four addr s 0)))).
 
     Definition compiled: list Instruction :=
@@ -332,7 +330,10 @@ Section MMIO1.
       rewrite <-LittleEndian.split_eq, LittleEndian.combine_split.
       rewrite Z.mod_small by eapply EncodeBound.encode_range.
       rewrite DecodeEncode.decode_encode; cycle 1. {
-        unfold valid_instructions in *. cbn in *. eauto.
+        epose proof Registers.arg_range_Forall as HH.
+        rewrite E3 in HH.
+        repeat match goal with HH : Forall _ (_::_)|-_ => inversion HH; subst; clear HH end.
+        split; cbn; unfold Encode.verify_S, funct3_SW, opcode_STORE; ssplit; try Lia.lia.
       }
       repeat fwd.
 
@@ -342,7 +343,7 @@ Section MMIO1.
       replace (map.get initialL_regs z1) with (Some x) by (symmetry; unfold map.extends in *; eauto).
       replace (map.get initialL_regs z2) with (Some x0) by (symmetry; unfold map.extends in *; eauto).
 
-      cbv [Utility.add Utility.ZToReg MachineWidth_XLEN]; rewrite add_0_r.
+      cbv [Utility.add Utility.ZToReg MachineWidth_XLEN]; rewrite word.add_0_r.
       unshelve erewrite (_ : _ = None); [eapply storeWord_in_MMIO_is_None; eauto|].
 
       cbv [MinimalMMIO.nonmem_store FE310_mmio].
@@ -471,7 +472,10 @@ Section MMIO1.
       rewrite <-LittleEndian.split_eq, LittleEndian.combine_split.
       rewrite Z.mod_small by (eapply EncodeBound.encode_range).
       rewrite DecodeEncode.decode_encode; cycle 1. {
-        unfold valid_instructions in *. cbn in *. eauto.
+        epose proof Registers.arg_range_Forall as HH.
+        rewrite E1 in HH.
+        repeat match goal with HH : Forall _ (_::_)|-_ => inversion HH; subst; clear HH end.
+        split; cbn; unfold Encode.verify_I, opcode_LOAD, funct3_LW; ssplit; try Lia.lia.
       }
 
       repeat fwd.
@@ -481,7 +485,7 @@ Section MMIO1.
       replace (map.get initialL_regs z1) with (Some x) by (symmetry; unfold map.extends in *; eauto).
 
       split; try discriminate.
-      cbv [Utility.add Utility.ZToReg MachineWidth_XLEN]; rewrite add_0_r.
+      cbv [Utility.add Utility.ZToReg MachineWidth_XLEN]; rewrite word.add_0_r.
       unshelve erewrite (_ : _ = None); [eapply loadWord_in_MMIO_is_None|]; eauto.
 
       cbv [MinimalMMIO.nonmem_load FE310_mmio].
@@ -541,6 +545,6 @@ Section MMIO1.
         typeclasses eauto.
       }
       eauto 10.
-  Time Qed. (* takes ~30s *)
+  Time Qed. (* takes ~70s *)
 
 End MMIO1.

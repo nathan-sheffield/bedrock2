@@ -6,7 +6,7 @@ Require Import riscv.Utility.Utility.
 Require Import coqutil.Map.MapEauto.
 Require Import bedrock2.Syntax.
 Require Import coqutil.Datatypes.ListSet.
-Require Import coqutil.Tactics.Simp.
+Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Tactics.autoforward.
 Require Import compiler.Registers.
 
@@ -34,7 +34,12 @@ Fixpoint live(s: stmt)(used_after: list srcvar): list srcvar :=
   | SStore _ a x _ => list_union String.eqb [a; x] used_after
   | SStackalloc x _ body => list_diff String.eqb (live body used_after) [x]
   | SLit x _ => list_diff String.eqb used_after [x]
-  | SOp x _ y z => list_union String.eqb [y; z] (list_diff String.eqb used_after [x])
+                          
+  | SOp x _ y z => let var_z := match z with
+                                | Var vz => [vz]
+                                | Const _ => []
+                                end in
+                   list_union String.eqb ([y] ++ var_z) (list_diff String.eqb used_after [x])
   | SIf c s1 s2 => list_union String.eqb
                               (list_union String.eqb (live s1 used_after) (live s2 used_after))
                               (accessed_vars_bcond c)
@@ -86,7 +91,10 @@ Fixpoint events(s: stmt)(after: list event): list event :=
   | SStore _ a x _ => end_event a ++ end_event x ++ after
   | SStackalloc x _ body => start_event x ++ events body after
   | SLit x _ => start_event x ++ after
-  | SOp x _ y z => end_event y ++ end_event z ++ start_event x ++ after
+  | SOp x _ y z => end_event y ++ (match z with
+                                   | Const cz => []
+                                   | Var vz => end_event vz
+                                   end) ++ start_event x ++ after
   | SIf c s1 s2 => bcond_events c (events s1 (events s2 after))
   | SSeq s1 s2 => events s1 (events s2 after)
   | SLoop s1 c s2 =>
@@ -141,6 +149,9 @@ Definition not_reserved(x: Z): bool := 5 <? x.
 Definition temp_regs : list impvar := Eval compute in List.filter not_reserved (reg_class.all reg_class.temp).
 Definition saved_regs: list impvar := Eval compute in List.filter not_reserved (reg_class.all reg_class.saved).
 Definition arg_regs  : list impvar := Eval compute in List.filter not_reserved (reg_class.all reg_class.arg).
+
+
+(* ** Previous implementation: assign impvars in one scan over the events *)
 
 (* Register availability, split by how preferable they are.
    For simplicity, we use the argument registers *only* for argument passing and as spilling temporaries. *)
@@ -210,6 +221,110 @@ Fixpoint process_intervals(corresp: list (srcvar * impvar))(av: av_regs)(l: list
   | nil => corresp
   end.
 
+
+(* ** New implementation: Process source variables from shortest to longest lifetime *)
+
+(* varname, start time, live interval length *)
+Definition lifetime := (string * (Z * Z))%type.
+
+Definition non_overlapping: lifetime -> lifetime -> bool :=
+  fun '(_, (start1, len1)) '(_, (start2, len2)) =>
+    if start1 + len1 <? start2 then true else start2 + len2 <? start1.
+
+(* custom implementation because List.forallb is not short-circuiting *)
+Section ConflictFree.
+  Context (candidate: lifetime).
+  Fixpoint conflict_free(occ: list lifetime): bool :=
+    match occ with
+    | nil => true
+    | l :: tail => if non_overlapping candidate l then conflict_free tail else false
+    end.
+End ConflictFree.
+
+(* i-th element contains list of intervals during which i-th impvar is occupied *)
+Definition occupancy := list (list lifetime).
+
+Fixpoint assign_srcvar(occs: occupancy)(v: lifetime): occupancy :=
+  match occs with
+  | occ :: tail => if conflict_free v occ then ((v :: occ) :: tail)
+                   else occ :: assign_srcvar tail v
+  | nil => [ [v] ] (* start using next (so far unused) register or stack slot *)
+  end.
+
+Section Sorting.
+  Context {A: Type} (lt: A -> A -> bool).
+
+  Section WithA.
+    Context (a: A).
+    Fixpoint insert_into_sorted(l: list A): list A :=
+      match l with
+      | [] => [a]
+      | h :: t => if lt a h then a :: l else h :: (insert_into_sorted t)
+      end.
+  End WithA.
+
+  Definition sort: list A -> list A := List.fold_right insert_into_sorted nil.
+End Sorting.
+
+Definition compare_interval_length: lifetime -> lifetime -> bool :=
+  fun '(name1, (start1, len1)) '(name2, (start2, len2)) => Z.ltb len1 len2.
+
+Section IndexOf.
+  Context {A: Type} (predicate: A -> bool).
+  Fixpoint index_of(l: list A): Z :=
+    match l with
+    | [] => -1
+    | h :: t => if predicate h then 0 else
+                  let rec := index_of t in
+                  match rec with
+                  | Zneg _ => rec
+                  | _ => rec + 1
+                  end
+    end.
+End IndexOf.
+
+Goal index_of (Z.eqb 3) [4; 3; 1] = 1. cbv. reflexivity. Abort.
+Goal index_of (Z.eqb 3) [4; 4; 1] = -1. cbv. reflexivity. Abort.
+
+Fixpoint events_to_intervals(current_time: Z)(events: list event): list lifetime :=
+  match events with
+  | (varname, is_start) :: tail =>
+      let rec := events_to_intervals (current_time + 1) tail in
+      if is_start then
+        let len := 1 + index_of (fun '(varname', _) => String.eqb varname varname') tail in
+        (varname, (current_time, len)) :: rec
+      else rec
+  | nil => nil
+  end.
+
+(* We use registers x6 to x9, registers x18 to x31, and stack slots x32 and beyond *)
+Definition first_available_impvar := 6.
+Definition next_available_impvar(v: Z): Z :=
+  if Z.eqb v 9 then 18 else v + 1.
+
+Fixpoint add_corresp_of_impvar(impvarname: Z)(occ: list lifetime)
+  (corresp: list (srcvar * impvar)): list (srcvar * impvar) :=
+  match occ with
+  | (srcvarname, _) :: tail =>
+      (srcvarname, impvarname) :: add_corresp_of_impvar impvarname tail corresp
+  | nil => corresp
+  end.
+
+Fixpoint corresp_of_impvars(start_impvar: Z)(o: occupancy): list (srcvar * impvar) :=
+  match o with
+  | h :: t => add_corresp_of_impvar start_impvar h
+                (corresp_of_impvars (next_available_impvar start_impvar) t)
+  | nil => nil
+  end.
+
+Definition events_to_corresp(events: list event): list (srcvar * impvar) :=
+  let sorted_intervals := sort compare_interval_length (events_to_intervals 0 events) in
+  let occ := List.fold_left assign_srcvar sorted_intervals [] in
+  corresp_of_impvars first_available_impvar occ.
+
+
+(* ** Common: Applying a rename mapping (corresp) *)
+
 Definition rename_bcond(corresp: list (srcvar * impvar))(c: bcond): result bcond' :=
   match c with
   | CondBinary op y z =>
@@ -219,6 +334,12 @@ Definition rename_bcond(corresp: list (srcvar * impvar))(c: bcond): result bcond
   | CondNez y =>
     y' <- lookup y corresp;;
     Success (CondNez y')
+  end.
+
+Definition lookup_op_corresp (op: @operand srcvar) (corresp: list (srcvar * impvar)): result (@operand impvar)  :=
+  match op with
+  | Const cp => Success (Const cp)
+  | Var vp  => (lp <- lookup vp corresp;; Success (Var lp))
   end.
 
 Fixpoint rename(corresp: list (srcvar * impvar))(s: stmt): result stmt' :=
@@ -245,7 +366,7 @@ Fixpoint rename(corresp: list (srcvar * impvar))(s: stmt): result stmt' :=
   | SOp x op y z =>
     x' <- lookup x corresp;;
     y' <- lookup y corresp;;
-    z' <- lookup z corresp;;
+    z' <- lookup_op_corresp z corresp;;
     Success (SOp x' op y' z')
   | SSet x y =>
     x' <- lookup x corresp;;
@@ -329,7 +450,7 @@ Fixpoint regalloc
     Success (corresp, av, SLit x' z)
   | SOp x op y z =>
     y' <- lookup y corresp;;
-    z' <- lookup z corresp;;
+    z' <- lookup_op_corresp z corresp;;
     let '(x', corresp, av) := assign_lhs x corresp av in
     Success (corresp, av, SOp x' op y' z')
   | SSet x y =>
@@ -370,7 +491,8 @@ End WithBugs.
 
 Definition regalloc_function: list srcvar * list srcvar * stmt -> result (list impvar * list impvar * stmt') :=
   fun '(args, rets, fbody) =>
-    let corresp := process_intervals [] initial_av_regs (intervals args fbody rets) in
+  (*let corresp := process_intervals [] initial_av_regs (intervals args fbody rets) in*)
+    let corresp := events_to_corresp (intervals args fbody rets) in
     fbody' <- rename corresp fbody;;
     args' <- lookups args corresp;;
     rets' <- lookups rets corresp;;
@@ -466,6 +588,26 @@ Definition assert_in(y: srcvar)(y': impvar)(m: list (srcvar * impvar)): result u
                    "did not contain the pair" (y, y'))
   end.
 
+Definition assert_in_op (y: @operand srcvar) (y': @operand impvar) (m: list (srcvar * impvar)): result unit :=
+  match y' with
+  | Var vy' => match y with
+               | Var vy => assert_in vy vy' m
+               | Const cy => error:("The register allocator replaced source constant" cy
+                                    "by target variable" vy')
+               end
+  | Const cy' => match y with
+                 | Var vy => error:("The register allocator replaced source variable" vy
+                                      "by target constant" cy')
+                 | Const cy => match Z.eqb cy cy' with
+                               | true => Success tt
+                               | false => error:("The register allocator replaced source constant" cy
+                                             "by target constant" cy')
+                               end
+                 end
+  end.                  
+                    
+                       
+
 Definition assert_ins(args: list srcvar)(args': list impvar)(m: list (srcvar * impvar)): result unit :=
   assert (Nat.eqb (List.length args) (List.length args'))
          error:("Register allocation checker got a source variable list" args
@@ -552,7 +694,7 @@ Fixpoint check(m: list (srcvar * impvar))(s: stmt)(s': stmt'){struct s}: result 
     Success (assignment m x x')
   | SOp x op y z, SOp x' op' y' z' =>
     assert_in y y' m;;
-    assert_in z z' m;;
+    assert_in_op z z' m;;
     assert (bopname_beq op op') err;;
     Success (assignment m x x')
   | SSet x y, SSet x' y' =>
@@ -631,7 +773,7 @@ Lemma extends_cons: forall a l1 l2,
     extends l1 l2 ->
     extends (a :: l1) (a :: l2).
 Proof.
-  unfold extends, assert_in. simpl. intros. simp.
+  unfold extends, assert_in. simpl. intros. fwd.
   destruct_one_match_hyp. 1: reflexivity.
   epose proof (H _ _ _) as A. destruct_one_match_hyp. 2: discriminate. rewrite E1. reflexivity.
   Unshelve. rewrite E. reflexivity.
@@ -640,7 +782,7 @@ Qed.
 Lemma extends_cons_l: forall a l,
     extends (a :: l) l.
 Proof.
-  unfold extends, assert_in. simpl. intros. simp.
+  unfold extends, assert_in. simpl. intros. fwd.
   destruct_one_match. 1: reflexivity.
   destruct_one_match_hyp; discriminate.
 Qed.
@@ -650,13 +792,13 @@ Lemma extends_cons_r: forall a l1 l2,
     extends l1 l2 ->
     extends l1 (a :: l2).
 Proof.
-  unfold extends, assert_in. simpl. intros. simp.
+  unfold extends, assert_in. simpl. intros. fwd.
   destruct_one_match_hyp. 2: {
     eapply H0. rewrite E. reflexivity.
   }
   destruct_one_match. 1: reflexivity.
   eapply find_none in E1. 2: eassumption.
-  simpl in E1. exfalso. congruence.
+  simpl in E1. exfalso. fwd. intuition congruence.
 Qed.
 
 Lemma extends_intersect_l: forall l1 l2,
@@ -690,8 +832,8 @@ Lemma extends_loop_inv': forall s1 s2 s1' s2' fuel corresp1 corresp2,
 Proof.
   induction fuel; simpl; intros.
   - discriminate.
-  - simp. destruct_one_match_hyp.
-    + simp. symmetry in E1. eapply intersect_same_length in E1.
+  - fwd. destruct_one_match_hyp.
+    + fwd. symmetry in E1. eapply intersect_same_length in E1.
       rewrite E1. eapply extends_refl.
     + eapply IHfuel in H. eapply extends_trans.
       2: exact H. apply extends_intersect_l.
@@ -714,10 +856,10 @@ Lemma defuel_loop_inv': forall fuel corresp inv m1 m2 s1 s2 s1' s2',
 Proof.
   induction fuel; intros; simpl in *.
   - discriminate.
-  - simp. destruct_one_match_hyp.
-    + simp. symmetry in E1. eapply intersect_same_length in E1. rewrite E1 in H0.
-      rewrite E in H0. simp.
-      rewrite E0 in H1. simp.
+  - fwd. destruct_one_match_hyp.
+    + fwd. symmetry in E1. eapply intersect_same_length in E1. rewrite E1 in H0.
+      rewrite E in H0. fwd.
+      rewrite E0 in H1. fwd.
       rewrite <- E1 at 1. reflexivity.
     + eapply IHfuel; eassumption.
 Qed.
@@ -734,7 +876,7 @@ Proof.
   eapply defuel_loop_inv'; eassumption.
 Qed.
 
-Section RegAlloc.
+Section CheckerCorrect.
 
   Context {width} {BW: Bitwidth width} {word: word.word width} {word_ok: word.ok word}.
   Context {mem: map.map word byte}.
@@ -753,6 +895,27 @@ Section RegAlloc.
         map.get st x = Some w ->
         map.get st' x' = Some w.
 
+  Definition states_compat_op(st: srcLocals)(corresp: list (srcvar * impvar))(st': impLocals) :=
+    forall (x: @operand srcvar) (x': @operand impvar),
+      assert_in_op x x' corresp = Success tt ->
+      forall w,
+        exec.lookup_op_locals st x = Some w ->
+        exec.lookup_op_locals st' x' = Some w.
+
+  Lemma states_compat_then_op:
+    forall st corresp st', states_compat st corresp st' -> states_compat_op st corresp st'.
+  Proof.
+    intros. unfold states_compat_op. destruct x, x'; unfold assert_in_op; unfold exec.lookup_op_locals; unfold states_compat in H.
+    { apply H. }
+    { intros. discriminate H0. }
+    { intros. discriminate H0. }
+    { destruct (c =? c0) eqn:Ec; try apply Z.eqb_eq in Ec; intros.
+      { rewrite <- Ec. apply H1. }
+      { discriminate H0. }
+    }
+  Qed.
+       
+      
   Definition precond(corresp: list (srcvar * impvar))(s: stmt)(s': stmt'): list (srcvar * impvar) :=
     match s, s' with
     | SLoop s1 c s2, SLoop s1' c' s2' => loop_inv corresp s1 s2 s1' s2'
@@ -766,12 +929,12 @@ Section RegAlloc.
       eval_bcond lL c' = Some b.
   Proof.
     intros. rename H1 into C. unfold states_compat in C.
-    destruct c; cbn in *; simp;
+    destruct c; cbn in *; fwd;
       repeat match goal with
              | u: unit |- _ => destruct u
              end;
       unfold assert in *;
-      cbn; simp;
+      cbn; fwd;
       repeat match goal with
              | H: @eq bool _ _ |- _ => autoforward with typeclass_instances in H
              end;
@@ -831,6 +994,13 @@ Section RegAlloc.
       map.get lL y' = Some v.
   Proof. unfold states_compat. eauto. Qed.
 
+  Lemma states_compat_get_op: forall corresp lL lH y y' v,
+      states_compat_op lH corresp lL ->
+      assert_in_op y y' corresp = Success tt ->
+      exec.lookup_op_locals lH y = Some v ->
+      exec.lookup_op_locals lL y' = Some v.
+  Proof. unfold states_compat_op. eauto. Qed.
+  
   Lemma states_compat_getmany: forall corresp lL lH ys ys' vs,
       states_compat lH corresp lL ->
       assert_ins ys ys' corresp = Success tt ->
@@ -838,18 +1008,18 @@ Section RegAlloc.
       map.getmany_of_list lL ys' = Some vs.
   Proof.
     induction ys; intros.
-    - unfold assert_ins in *. cbn in *. simp. destruct ys'. 2: discriminate. reflexivity.
-    - cbn in *. unfold assert_ins, assert in H0. simp.
-      autoforward with typeclass_instances in E3. destruct ys' as [|a' ys']. 1: discriminate.
+    - unfold assert_ins in *. cbn in *. fwd. destruct ys'. 2: discriminate. reflexivity.
+    - cbn in *. unfold assert_ins, assert in H0. fwd.
+      destruct ys' as [|a' ys']. 1: discriminate.
       inversion E3. clear E3.
-      cbn in *. simp. simpl in E2.
+      cbn in *. fwd.
       erewrite states_compat_get; try eassumption. 2: {
         unfold assert_in. unfold mapping_eqb. rewrite E1. reflexivity.
       }
       unfold map.getmany_of_list in *.
       erewrite IHys; eauto.
       unfold assert_ins. rewrite H1. rewrite Nat.eqb_refl. simpl.
-      unfold assert. rewrite E2. reflexivity.
+      unfold assert. rewrite E2p1. reflexivity.
   Qed.
 
   Lemma states_compat_put: forall lH corresp lL x x' v,
@@ -858,7 +1028,7 @@ Section RegAlloc.
   Proof.
     intros. unfold states_compat in *. intros k k'. intros.
     rewrite map.get_put_dec. rewrite map.get_put_dec in H1.
-    unfold assert_in, assignment in H0. simp. simpl in E.
+    unfold assert_in, assignment in H0. fwd. simpl in E.
     rewrite String.eqb_sym, Z.eqb_sym in E.
     destr (Z.eqb x' k').
     - destr (String.eqb x k).
@@ -883,6 +1053,8 @@ Section RegAlloc.
         simpl in E1. rewrite String.eqb_refl, Z.eqb_refl in E1. discriminate.
   Qed.
 
+  
+
   Lemma putmany_of_list_zip_states_compat: forall binds binds' resvals lL lH l' corresp corresp',
       map.putmany_of_list_zip binds resvals lH = Some l' ->
       assignments corresp binds binds' = Success corresp' ->
@@ -892,9 +1064,9 @@ Section RegAlloc.
         states_compat l' corresp' lL'.
   Proof.
     induction binds; intros.
-    - simpl in H. simp. destruct binds'. 2: discriminate.
-      simpl in *. simp. eauto.
-    - simpl in *. simp.
+    - simpl in H. fwd. destruct binds'. 2: discriminate.
+      simpl in *. fwd. eauto.
+    - simpl in *. fwd.
       specialize IHbinds with (1 := H).
       rename l' into lH'.
       edestruct IHbinds as (lL' & P & C). 1: eassumption. 1: eapply states_compat_put. 1: eassumption.
@@ -912,13 +1084,15 @@ Section RegAlloc.
   Lemma assert_ins_same_length: forall xs xs' m u,
       assert_ins xs xs' m = Success u -> List.length xs = List.length xs'.
   Proof.
-    unfold assert_ins, assert. intros. simp. apply Nat.eqb_eq. assumption.
+    unfold assert_ins, assert. intros. fwd. assumption.
   Qed.
 
+      
   Hint Constructors exec.exec : checker_hints.
   Hint Resolve states_compat_get : checker_hints.
   Hint Resolve states_compat_put : checker_hints.
-
+  Hint Resolve states_compat_get_op : checker_hints.
+  Hint Resolve states_compat_then_op : checker_hints. 
   Lemma checker_correct: forall (e: srcEnv) (e': impEnv) s t m lH mc post,
       check_funcs e e' = Success tt ->
       exec e s t m lH mc post ->
@@ -932,12 +1106,12 @@ Section RegAlloc.
       match goal with
       | H: check _ _ _ = Success _ |- _ => pose proof H as C; move C at top; cbn [check] in H
       end;
-      simp;
+      fwd;
       repeat match goal with
              | u: unit |- _ => destruct u
              end;
       unfold assert in *;
-      simp;
+      fwd;
       repeat match goal with
              | H: negb _ = false |- _ => apply Bool.negb_false_iff in H
              | H: negb _ = true  |- _ => apply Bool.negb_true_iff in H
@@ -955,9 +1129,9 @@ Section RegAlloc.
       rename binds0 into binds', args0 into args'.
       unfold check_funcs in H.
       eapply map.get_forall_success in H. 2: eassumption.
-      unfold lookup_and_check_func in *. simp.
+      unfold lookup_and_check_func in *. fwd.
       destruct p as ((params' & rets') & fbody').
-      unfold check_func in *. simp.
+      unfold check_func in *. fwd.
       apply_in_hyps @map.getmany_of_list_length.
       apply_in_hyps assert_ins_same_length.
       apply_in_hyps assignments_same_length.
@@ -969,7 +1143,7 @@ Section RegAlloc.
         edestruct putmany_of_list_zip_states_compat as [ lLF0 [L SC] ].
         2: exact E3. 2: eapply states_compat_empty. 1: eassumption.
         rewrite L3 in L. apply Option.eq_of_eq_Some in L. subst lLF0. exact SC.
-      + cbv beta. intros. simp. edestruct H4 as (retvs & lHF' & G & P & Hpost). 1: eassumption.
+      + cbv beta. intros. fwd. edestruct H4 as (retvs & lHF' & G & P & Hpost). 1: eassumption.
         edestruct putmany_of_list_zip_states_compat as (lL' & L4 & SC).
         1: exact P. 1: exact H5. 1: eassumption.
         do 2 eexists. ssplit.
@@ -987,26 +1161,28 @@ Section RegAlloc.
       intros. eapply exec.weaken.
       + eapply H2; try eassumption.
         eapply states_compat_precond. eapply states_compat_put. assumption.
-      + cbv beta. intros. simp. eauto 10 with checker_hints.
+      + cbv beta. intros. fwd. eauto 10 with checker_hints.
     - (* Case exec.lit *)
       eauto 10 with checker_hints.
     - (* Case exec.op *)
-      eauto 10 with checker_hints.
+      eauto 10 with checker_hints. 
+ 
     - (* Case exec.set *)
       eauto 10 with checker_hints.
+
     - (* Case exec.if_true *)
       eapply exec.if_true. 1: eauto using states_compat_eval_bcond.
       eapply exec.weaken.
       + eapply IHexec. 1: eassumption.
         eapply states_compat_precond. eassumption.
-      + cbv beta. intros. simp. eexists. split. 2: eassumption.
+      + cbv beta. intros. fwd. eexists. split. 2: eassumption.
         eapply states_compat_extends. 2: eassumption. eapply extends_intersect_l.
     - (* Case exec.if_false *)
       eapply exec.if_false. 1: eauto using states_compat_eval_bcond.
       eapply exec.weaken.
       + eapply IHexec. 1: eassumption.
         eapply states_compat_precond. eassumption.
-      + cbv beta. intros. simp. eexists. split. 2: eassumption.
+      + cbv beta. intros. fwd. eexists. split. 2: eassumption.
         eapply states_compat_extends. 2: eassumption. eapply extends_intersect_r.
     - (* Case exec.loop *)
       rename H4 into IH2, IHexec into IH1, H6 into IH12.
@@ -1018,11 +1194,11 @@ Section RegAlloc.
       rewrite E in SC.
       eapply exec.loop.
       + eapply IH1. 1: eassumption. eapply states_compat_precond. exact SC.
-      + cbv beta. intros. simp. eauto using states_compat_eval_bcond_None.
-      + cbv beta. intros. simp. eexists. split. 2: eauto using states_compat_eval_bcond_bw. assumption.
-      + cbv beta. intros. simp. eapply IH2; eauto using states_compat_eval_bcond_bw.
+      + cbv beta. intros. fwd. eauto using states_compat_eval_bcond_None.
+      + cbv beta. intros. fwd. eexists. split. 2: eauto using states_compat_eval_bcond_bw. assumption.
+      + cbv beta. intros. fwd. eapply IH2; eauto using states_compat_eval_bcond_bw.
         eapply states_compat_precond. assumption.
-      + cbv beta. intros. simp. eapply IH12. 1: eassumption. 1: eassumption.
+      + cbv beta. intros. fwd. eapply IH12. 1: eassumption. 1: eassumption.
         eapply states_compat_extends. 2: eassumption.
         pose proof defuel_loop_inv as P.
         specialize P with (2 := E0).
@@ -1038,11 +1214,11 @@ Section RegAlloc.
       eapply exec.seq.
       + eapply IH1. 1: eassumption.
         eapply states_compat_precond. assumption.
-      + cbv beta. intros. simp.
+      + cbv beta. intros. fwd.
         eapply IH2. 1: eassumption. 1: eassumption.
         eapply states_compat_precond. assumption.
     - (* Case exec.skip *)
       eapply exec.skip. eauto.
   Qed.
 
-End RegAlloc.
+End CheckerCorrect.
