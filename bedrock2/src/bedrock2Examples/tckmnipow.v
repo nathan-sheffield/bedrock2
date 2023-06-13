@@ -113,57 +113,7 @@ Qed.
 
 Lemma ipow_ok : program_logic_goal_for_function! ipow.
 Proof.
-  
-  straightline.
-  straightline.
-  straightline.
-  straightline.
-
-
-  (* first one works, second one doesnt? *)
-  (*
-  match goal with
-  | |- WeakestPrecondition.cmd _ (cmd.set ?s ?e) _ _ _ _ ?post =>
-    unfold1_cmd_goal; cbv beta match delta [cmd_body];
-    let __ := match s with String.String _ _ => idtac | String.EmptyString => idtac end in
-    ident_of_constr_string_cps s ltac:(fun x =>
-                                         ensure_free x; hnf; 
-                                         lazymatch goal with
-  | |- exists x', ?P =>
-    refine (let x := _ in ex_intro (fun x' => P) x _)
-                                         end)
-  end.
-   *)
- (*
-  match goal with
-  | |- WeakestPrecondition.cmd _ (cmd.set ?s ?e) _ _ _ _ ?post =>
-    unfold1_cmd_goal; cbv beta match delta [cmd_body];
-    let __ := match s with String.String _ _ => idtac | String.EmptyString => idtac end in
-    ident_of_constr_string_cps s ltac:(fun x =>
-                                         ensure_free x; 
-                                         letexists_as _ x)
-end.
-*)
-  
-  match goal with
-  | |- WeakestPrecondition.cmd _ (cmd.set ?s ?e) _ _ _ _ ?post =>
-    unfold1_cmd_goal; cbv beta match delta [cmd_body];
-    let __ := match s with String.String _ _ => idtac | String.EmptyString => idtac end in
-    ident_of_constr_string_cps s ltac:(fun x =>
-                                         ensure_free x; hnf; 
-                                         lazymatch goal with
-  | |- exists x', ?P =>
-    refine (let x := _ in ex_intro (fun x' => P) x _)
-                                         end);
-     let __ := match s with String.String _ _ => idtac | String.EmptyString => idtac end in
-    ident_of_constr_string_cps s ltac:(fun x =>
-                                         ensure_free x; hnf; 
-                                         lazymatch goal with
-  | |- exists x', ?P =>
-    refine (let x := _ in ex_intro (fun x' => P) x _)
-  end)
-  end.
-  split; try(repeat straightline; subst ret ret'0; cbv [literal dlet.dlet]; trivial). 
+  repeat straightline.
        
  refine ((Loops.tailrec
     (* types of ghost variables*) HList.polymorphic_list.nil
@@ -186,195 +136,7 @@ end.
   { repeat straightline. }
   { exact (Z.lt_wf _). }
   { repeat straightline. } (* init precondition *)
-  { (* loop test *)
-    repeat straightline; try show_program.
-    { (* loop body *)
-      eexists. exists (addMetricInstructions 11 (addMetricLoads 12 mc')). split; [repeat straightline|]. (* if condition evaluation *)
-      (*this case shouldnt exist*) 1:{ cbv [literal dlet.dlet]. 
-                                       cbv [addMetricLoads withLoads addMetricInstructions withInstructions instructions stores loads jumps].
-                                       simpl.
-                                       repeat (
-    try rewrite applyAddInstructions;
-    try rewrite applyAddStores;
-    try rewrite applyAddLoads;
-    try rewrite applyAddJumps
-  );
-  repeat rewrite <- Z.add_assoc;
-  cbn [Z.add Pos.add Pos.succ]
-. trivial.                                                                                                     
-      }
-      split. (* if cases, path-blasting *)
-      {
-         (straightline || (split; trivial; [])).
-         (straightline || (split; trivial; [])).         
-        (*once again i am forced to do things i would rather not*)
-          unfold1_cmd_goal.
-          cbv beta match delta [cmd_body].
-                         exists (mul x1 x2). exists (addMetricInstructions 17 (addMetricLoads 20 (addMetricJumps 1 mc'))).
-                         split. 1: { repeat straightline.
-                                     cbv [addMetricLoads withLoads addMetricInstructions withInstructions instructions stores loads jumps].
-                                       simpl.
-                                     repeat (
-    try rewrite applyAddInstructions;
-    try rewrite applyAddStores;
-    try rewrite applyAddLoads;
-    try rewrite applyAddJumps
-  );
-  repeat rewrite <- Z.add_assoc;
-  cbn [Z.add Pos.add Pos.succ]
-. trivial.                     
-                              }
-        (straightline || (split; trivial; [])).
-        unfold1_cmd_goal.
-          cbv beta match delta [cmd_body].
-                         exists (sru x0 (word.of_Z 1)). exists (addMetricInstructions 29 (addMetricLoads 33 (addMetricJumps 1 mc'))).
-                         split. 1: { repeat straightline. cbv [literal dlet.dlet].
-                                     cbv [addMetricLoads withLoads addMetricInstructions withInstructions instructions stores loads jumps].
-                                       simpl.
-                                     repeat (
-    try rewrite applyAddInstructions;
-    try rewrite applyAddStores;
-    try rewrite applyAddLoads;
-    try rewrite applyAddJumps
-  );
-  repeat rewrite <- Z.add_assoc;
-  cbn [Z.add Pos.add Pos.succ]
-.    rewrite Pos.add_carry_spec. 
-     (*pretty sure this adds up, but i think i'd like to sort out the automation problems before pressing ahead any farther*) Abort.
-                              }
-                              (* :( *)
-        2: split. all:t.
-        { (* measure decreases *)
-          set (word.unsigned x0) in *. (* WHY does blia need this? *)
-          Z.div_mod_to_equations. blia. }
-        { (* invariant preserved *)
-          rewrite H3; clear H3. rename H0 into Hbit.
-          change (1+1) with 2 in *.
-          eapply Z.mod2_nonzero in Hbit.
-          epose proof (Z.div_mod _ 2 ltac:(discriminate)) as Heq; rewrite Hbit in Heq.
-          rewrite Heq at 2; clear Hbit Heq.
-          (* rewriting with equivalence modulo ... *)
-          rewrite !word.unsigned_mul.
-          unfold word.wrap.
-          rewrite ?Z.mul_mod_idemp_l by discriminate.
-          rewrite <-(Z.mul_mod_idemp_r _ (_^_)), Z.pow_mod by discriminate.
-          rewrite ?Z.pow_add_r by (pose proof word.unsigned_range x0; Z.div_mod_to_equations; blia).
-          rewrite ?Z.pow_twice_r, ?Z.pow_1_r, ?Z.pow_mul_l.
-          rewrite Z.mul_mod_idemp_r by discriminate.
-          f_equal; ring. }
-        { (* metrics correct *)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H4.
-          applyAddMetrics H4.
-          rewrite msb_shift in H4 by blia.
-          rewrite MetricArith.mul_sub_distr_r in H4.
-          rewrite <- MetricArith.add_sub_swap in H4.
-          rewrite <- MetricArith.le_add_le_sub_r in H4.
-          eapply MetricArith.le_trans.
-          2: exact H4.
-          unfold iterCost.
-          solve_MetricLog.
-        }
-      }
-      {
-        repeat (straightline || (split; trivial; [])). 2: split. all: t.
-        { (* measure decreases *)
-          set (word.unsigned x0) in *. (* WHY does blia need this? *)
-          Z.div_mod_to_equations; blia. }
-        { (* invariant preserved *)
-          rewrite H3; clear H3. rename H0 into Hbit.
-          change (1+1) with 2 in *.
-          epose proof (Z.div_mod _ 2 ltac:(discriminate)) as Heq; rewrite Hbit in Heq.
-          rewrite Heq at 2; clear Hbit Heq.
-          (* rewriting with equivalence modulo ... *)
-          rewrite !word.unsigned_mul, ?Z.mul_mod_idemp_l by discriminate.
-          cbv [word.wrap].
-          rewrite <-(Z.mul_mod_idemp_r _ (_^_)), Z.pow_mod by discriminate.
-          rewrite ?Z.add_0_r, Z.pow_twice_r, ?Z.pow_1_r, ?Z.pow_mul_l.
-          rewrite Z.mul_mod_idemp_r by discriminate.
-          f_equal; ring. }
-        { (* metrics correct *)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H4.
-          applyAddMetrics H4.
-          rewrite msb_shift in H4 by blia.
-          rewrite MetricArith.mul_sub_distr_r in H4.
-          rewrite <- MetricArith.add_sub_swap in H4.
-          rewrite <- MetricArith.le_add_le_sub_r in H4.
-          eapply MetricArith.le_trans.
-          2: exact H4.
-          unfold iterCost.
-          solve_MetricLog.
-        }
-      }
-    }
-    { (* postcondition *)
-      rewrite H, Z.pow_0_r, Z.mul_1_r, word.wrap_unsigned.
-      repeat match goal with
-             | |- _ /\ _ => split
-             | |- _ = _ => reflexivity
-             end.
-      unfold msb, iterCost, endCost.
-      subst mc'.
-      solve_MetricLog.
-    }
-  }
-
-  repeat straightline.
-  repeat match goal with
-         | |- _ /\ _ => split
-         | |- _ = _ => reflexivity
-         | |- exists _, _ => letexists
-         | _ => t
-         end.
-  1: setoid_rewrite H1; setoid_rewrite Z.mul_1_l; trivial.
-
-  unfold initCost, iterCost, endCost in *.
-  solve_MetricLog.
-
-                 (*end hacking*)
-
-
-                 
-   (*
-  Print straightline.
-         (let __ := match s with
-                    | String.String _ _ => idtac
-                    | "" => idtac
-                    end in
-          ident_of_string.ident_of_constr_string_cps s
-            ltac:(fun x => ensure_free x; letexists _ as x; split; [ solve [ repeat straightline ] |  ])).
-    *)
-                 
-  straightline.
-  straightline.
-  repeat straightline.
-  cbv beta delta [dexpr].
-  eexists; eexists; split.
-  - repeat straightline. trivial. unfold1_expr_goal; cbv beta match delta [expr_body]. straightline.
-                                    
-  Print straightline.
-
-  Check ((Loops.tailrec
-    (* types of ghost variables*) HList.polymorphic_list.nil
-    (* program variables *) (["e";"ret";"x"] : list String.string))
-    (fun v t m e ret x mc => PrimitivePair.pair.mk (v = word.unsigned e) (* precondition *)
-    (fun   T M E RET X MC=> T = t /\ M = m /\ (* postcondition *)
-        word.unsigned RET = word.unsigned ret * word.unsigned x ^ word.unsigned e mod 2^64 /\
-        (MC - mc <= msb (word.unsigned e) * iterCost + endCost)%metricsH))
-    (fun n m => 0 <= n < m) (* well_founded relation *)
-    _ _ _ _ _). ;
-    (* TODO wrap this into a tactic with the previous refine *)
-    cbn [HList.hlist.foralls HList.tuple.foralls
-         HList.hlist.existss HList.tuple.existss
-         HList.hlist.apply  HList.tuple.apply
-         HList.hlist
-         List.repeat Datatypes.length
-         HList.polymorphic_list.repeat HList.polymorphic_list.length
-         PrimitivePair.pair._1 PrimitivePair.pair._2] in *.
-
-  { repeat straightline. }
-  { exact (Z.lt_wf _). }
-  { repeat straightline. } (* init precondition *)
-  { (* loop test *)
+{ (* loop test *)
     repeat straightline; try show_program.
     { (* loop body *)
       eexists; eexists; split; [repeat straightline|]. (* if condition evaluation *)
@@ -385,7 +147,7 @@ end.
           set (word.unsigned x0) in *. (* WHY does blia need this? *)
           Z.div_mod_to_equations. blia. }
         { (* invariant preserved *)
-          rewrite H3; clear H3. rename H0 into Hbit.
+          rewrite H4; clear H4. rename H1 into Hbit.
           change (1+1) with 2 in *.
           eapply Z.mod2_nonzero in Hbit.
           epose proof (Z.div_mod _ 2 ltac:(discriminate)) as Heq; rewrite Hbit in Heq.
@@ -400,16 +162,31 @@ end.
           rewrite Z.mul_mod_idemp_r by discriminate.
           f_equal; ring. }
         { (* metrics correct *)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H4.
-          applyAddMetrics H4.
-          rewrite msb_shift in H4 by blia.
-          rewrite MetricArith.mul_sub_distr_r in H4.
-          rewrite <- MetricArith.add_sub_swap in H4.
-          rewrite <- MetricArith.le_add_le_sub_r in H4.
+          (*Andy had this cbn here, but I don't think it does anything*)
+          cbn [addMetricLoads withLoads instructions stores loads jumps] in H5.
+          applyAddMetrics H5.
+          rewrite msb_shift in H5 by blia.
+          rewrite MetricArith.mul_sub_distr_r in H5.
+          rewrite <- MetricArith.add_sub_swap in H5.
+          rewrite <- MetricArith.le_add_le_sub_r in H5.
           eapply MetricArith.le_trans.
-          2: exact H4.
+          2: exact H5.
           unfold iterCost.
-          solve_MetricLog.
+
+          (*Here this goal _should_ be completed by solve_MetricLog, which just unfolds all these
+            MetricLog things and then applies blia. However, when I tried running solve_MetricLog it
+            froze my computer. Trying to cbv things on their own also doesn't work: *)
+
+          Time cbv [addMetricInstructions].
+          (*This claims to finish in 0.68 seconds, but actually took at least 2 minutes on my computer*)
+          cbv [addMetricLoads].
+          (*This doesn't finish; it just grinds its gears for a little while and then the window closes itself*)
+
+          
+          (*Should this be working? I can't tell if this is just an issue with my physical machine or if there
+            are issues with what I'm trying to do. It's definitely trying to cbv a lot of instances, but I don't see
+            why it should be struggling so much.*)
+          
         }
       }
       {

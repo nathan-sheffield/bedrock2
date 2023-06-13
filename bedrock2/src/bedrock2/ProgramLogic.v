@@ -199,7 +199,7 @@ Ltac eq_uniq_step :=
   | |- ?x = ?y =>
       let x := rdelta x in
       let y := rdelta y in
-      first [ is_evar x | is_evar y | constr_eq x y ]; exact eq_refl
+      first [ is_evar x | is_evar y | constr_eq x y ]; change (x = y); exact eq_refl
   | |- ?lhs = ?rhs =>
       let lh := head lhs in
       is_constructor lh;
@@ -224,6 +224,7 @@ Ltac fwd_uniq_step :=
   end.
 Ltac fwd_uniq := repeat fwd_uniq_step.
 
+Local Open Scope string_scope.
 Ltac straightline :=
   match goal with
   | _ => straightline_cleanup
@@ -239,7 +240,11 @@ Ltac straightline :=
     ident_of_constr_string_cps s ltac:(fun x =>
       ensure_free x;
       (* NOTE: keep this consistent with the [exists _, _ /\ _] case far below *)
-      letexists _ as x; split; [solve [repeat straightline]|])
+      let e := open_constr:(_) in letexists_as e x);
+      ident_of_constr_string_cps "metrics" ltac:(fun x =>
+                                         ensure_free x; 
+                                         let e := open_constr:(_) in
+                                         letexists_as e x); split; [solve [repeat straightline]|]
   | |- cmd _ ?c _ _ _ _ ?post =>
     let c := eval hnf in c in
     lazymatch c with
@@ -254,7 +259,7 @@ Ltac straightline :=
   | |- expr _ _ _ _ _ => unfold1_expr_goal; cbv beta match delta [expr_body]
   | |- dexpr _ _ _ _ _ => cbv beta delta [dexpr]
   | |- dexprs _ _ _ _ _ => cbv beta delta [dexprs]
-  | |- literal _ _ => cbv beta delta [literal]
+  | |- literal _ _ _ => cbv beta delta [literal]
   | |- get _ _ _ _ => cbv beta delta [get]
   | |- load _ _ _ _ _ => cbv beta delta [load]
   | |- @Loops.enforce ?width ?word ?locals ?names ?values ?map =>
