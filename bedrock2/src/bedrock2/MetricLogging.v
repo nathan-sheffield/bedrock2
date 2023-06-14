@@ -71,7 +71,7 @@ Infix "+" := metricsAdd : MetricH_scope.
 Infix "-" := metricsSub : MetricH_scope.
 Infix "*" := metricsMul : MetricH_scope.
 
-Hint Unfold
+#[global] Hint Unfold
      withInstructions
      withLoads
      withStores

@@ -348,7 +348,7 @@ Ltac straightline_call :=
 
 Ltac current_trace_mem_locals :=
   lazymatch goal with
-  | |- WeakestPrecondition.cmd _  _ ?t ?m ?l _ => constr:((t, m, l))
+  | |- WeakestPrecondition.cmd _  _ ?t ?m ?l ?mc _ => constr:((t, m, l))
   end.
 
 Ltac seprewrite Hrw :=

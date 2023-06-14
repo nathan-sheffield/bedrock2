@@ -31,16 +31,36 @@ Local Open Scope word_scope.
 
 From bedrock2 Require Import Semantics BasicC64Semantics.
 
-Import HList List.
+Import HList List. Require Import bedrock2.MetricLogging.
+
+Definition initCost := {| instructions := 90; stores := 0; loads := 90; jumps := 0 |}.
+Definition iterCost := {| instructions := 90; stores := 0; loads := 90; jumps := 2 |}.
+Definition endCost :=  {| instructions := 90; stores := 0; loads := 90; jumps := 1 |}.
+
+Definition nth(l: list word)(n: nat): word := List.nth n l (word.of_Z 0).
+
+Fixpoint In {A: Type} (a:A) (l:list A) : Prop :=
+    match l with
+      | nil => False
+      | cons b m => b = a \/ In a m
+end.
+
+ Definition Sorted(l: list word): Prop :=
+    forall i j: nat, (i < j < List.length l)%nat ->
+                     word.unsigned (nth l i) <= word.unsigned (nth l j).
+
+ 
 #[export] Instance spec_of_bsearch : spec_of "bsearch"%string := fun functions =>
-  forall left right target xs R t m,
+  forall left right target xs R t m mc,
     sep (array scalar (word.of_Z 8) left xs) R m ->
     \_ (right ^- left) = 8*Z.of_nat (Datatypes.length xs) ->
     WeakestPrecondition.call functions
-      "bsearch"%string t m (left::right::target::nil)%list
-      (fun t' m' rets => t=t' /\ sep (array scalar (word.of_Z 8) left xs) R m' /\ exists i, rets = (i::nil)%list /\
-      ((*sorted*)False -> True)
+      "bsearch"%string t m (left::right::target::nil)%list mc
+      (fun t' m' rets mc' => t=t' /\ sep (array scalar (word.of_Z 8) left xs) R m' /\ exists i, rets = (i::nil)%list /\
+      (Sorted xs -> List.In target xs -> nth xs (Z.to_nat (( \_ i -  \_ left) / 8)) = target) /\
+       (mc' - mc <= initCost + Z.of_nat (Nat.log2 (Datatypes.length xs)) * iterCost + endCost)%metricsH                                          
       ).
+
 
 From coqutil.Tactics Require Import eabstract letexists rdelta.
 From coqutil.Macros Require Import symmetry.
@@ -53,11 +73,14 @@ Proof.
 
   refine (
     tailrec (HList.polymorphic_list.cons _ (HList.polymorphic_list.cons _ HList.polymorphic_list.nil)) ("left"::"right"::"target"::nil)%list%string
-        (fun l xs R t m left right target => PrimitivePair.pair.mk
+        (fun l xs R t m left right target mc => PrimitivePair.pair.mk
                                                (sep (array scalar (word.of_Z 8) left xs) R m /\
                                                 \_ (right ^- left) = 8*Z.of_nat (Datatypes.length xs) /\
                                                 List.length xs = l)
-        (fun        T M LEFT RIGHT TARGET => T = t /\ sep (array scalar (word.of_Z 8) left xs) R M))
+                                               (fun T M LEFT RIGHT TARGET MC => T = t /\ sep (array scalar (word.of_Z 8) left xs) R M
+                                               )
+                                               
+        ) 
         lt _ _ _ _ _ _ _);
     cbn [reconstruct map.putmany_of_list HList.tuple.to_list
          HList.hlist.foralls HList.tuple.foralls
@@ -72,11 +95,12 @@ Proof.
   { exact lt_wf. }
   { eauto. }
   { repeat straightline.
-    2: solve [auto]. (* exiting loop *)
+    2: solve [auto].  (* exiting loop *)
     (* loop body *)
     rename H2 into length_rep. subst br.
+    
     seprewrite @array_address_inbounds;
-       [ ..|(* if expression *) exact eq_refl|letexists; split; [repeat straightline|]]. (* determines element *)
+       [ ..|(* if expression *) exact eq_refl|letexists; letexists; split; [repeat straightline|]]. (* determines element *)
     { ZnWords. }
     { ZnWords. }
     (* split if cases *) split; repeat straightline. (* code is processed, loop-go-again goals left behind *)
@@ -112,7 +136,107 @@ Proof.
   repeat apply conj; auto; []. (* postcondition *)
   letexists. split.
   { exact eq_refl. }
+  repeat(split).
   { auto. }
+  { eauto. }
+
+  Unshelve.
+  all: exact (word.of_Z 0).
+
+  all:fail "remaining subgoals".
+Qed.
+
+
+(*
+
+#[export] Instance spec_of_bsearch : spec_of "bsearch"%string := fun functions =>
+  forall left right target xs R t m mc,
+    sep (array scalar (word.of_Z 8) left xs) R m ->
+    \_ (right ^- left) = 8*Z.of_nat (Datatypes.length xs) ->
+    WeakestPrecondition.call functions
+      "bsearch"%string t m (left::right::target::nil)%list mc
+      (fun t' m' rets mc' => t=t' /\ sep (array scalar (word.of_Z 8) left xs) R m' /\ exists i, rets = (i::nil)%list /\
+      ((*sorted*)False -> True)                                      
+      ).
+
+
+From coqutil.Tactics Require Import eabstract letexists rdelta.
+From coqutil.Macros Require Import symmetry.
+Import PrimitivePair.
+Require Import bedrock2.ZnWords.
+
+Lemma bsearch_ok : program_logic_goal_for_function! bsearch.
+Proof.
+  repeat straightline.
+
+  refine (
+    tailrec (HList.polymorphic_list.cons _ (HList.polymorphic_list.cons _ HList.polymorphic_list.nil)) ("left"::"right"::"target"::nil)%list%string
+        (fun l xs R t m left right target mc => PrimitivePair.pair.mk
+                                               (sep (array scalar (word.of_Z 8) left xs) R m /\
+                                                \_ (right ^- left) = 8*Z.of_nat (Datatypes.length xs) /\
+                                                List.length xs = l)
+                                               (fun T M LEFT RIGHT TARGET MC => T = t /\ sep (array scalar (word.of_Z 8) left xs) R M
+                                               )
+                                               
+        ) 
+        lt _ _ _ _ _ _ _);
+    cbn [reconstruct map.putmany_of_list HList.tuple.to_list
+         HList.hlist.foralls HList.tuple.foralls
+         HList.hlist.existss HList.tuple.existss
+         HList.hlist.apply  HList.tuple.apply
+         HList.hlist
+         List.repeat Datatypes.length
+         HList.polymorphic_list.repeat HList.polymorphic_list.length
+         PrimitivePair.pair._1 PrimitivePair.pair._2] in *.
+
+  { repeat straightline. }
+  { exact lt_wf. }
+  { eauto. }
+  { repeat straightline.
+    2: solve [auto].  (* exiting loop *)
+    (* loop body *)
+    rename H2 into length_rep. subst br.
+    
+    seprewrite @array_address_inbounds;
+       [ ..|(* if expression *) exact eq_refl|letexists; letexists; split; [repeat straightline|]]. (* determines element *)
+    { ZnWords. }
+    { ZnWords. }
+    (* split if cases *) split; repeat straightline. (* code is processed, loop-go-again goals left behind *)
+    { repeat letexists. split; [repeat straightline|].
+      1:split.
+      2:split.
+      { SeparationLogic.ecancel_assumption. }
+      { ZnWordsL. }
+      { cleanup_for_ZModArith. reflexivity. }
+      split; repeat straightline.
+      2: SeparationLogic.seprewrite_in (symmetry! @array_address_inbounds) H6.
+      { ZnWordsL. }
+      { ZnWords. }
+      { ZnWords. }
+      { trivial. }
+      { SeparationLogic.ecancel_assumption. } }
+    (* second branch of the if, very similar goals... *)
+    { repeat letexists. split.
+      1:split.
+      2:split.
+      { SeparationLogic.ecancel_assumption. }
+      { ZnWordsL. }
+      { cleanup_for_ZModArith. reflexivity. }
+      split.
+      { ZnWordsL. }
+      repeat straightline.
+      subst x5. SeparationLogic.seprewrite_in (symmetry! @array_address_inbounds) H6.
+      { ZnWords. }
+      { ZnWords. }
+      { ZnWords. }
+      { SeparationLogic.ecancel_assumption. } } }
+  repeat straightline.
+  repeat apply conj; auto; []. (* postcondition *)
+  letexists. split.
+  { exact eq_refl. }
+  repeat(split).
+  { auto. }
+  { eauto. }
 
   Unshelve.
   all: exact (word.of_Z 0).
@@ -121,3 +245,4 @@ Proof.
 Qed.
 (* Print Assumptions bsearch_ok. *)
 (* Closed under the global context *)
+*)
