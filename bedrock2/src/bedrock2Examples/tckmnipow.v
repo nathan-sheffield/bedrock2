@@ -173,19 +173,15 @@ Proof.
           2: exact H5.
           unfold iterCost.
 
-          (*Here this goal _should_ be completed by solve_MetricLog, which just unfolds all these
-            MetricLog things and then applies blia. However, when I tried running solve_MetricLog it
-            froze my computer. Trying to cbv things on their own also doesn't work: *)
 
-          Time cbv [addMetricInstructions].
-          (*This claims to finish in 0.68 seconds, but actually took at least 2 minutes on my computer*)
-          cbv [addMetricLoads].
-          (*This doesn't finish; it just grinds its gears for a little while and then the window closes itself*)
-
-          
-          (*Should this be working? I can't tell if this is just an issue with my physical machine or if there
-            are issues with what I'm trying to do. It's definitely trying to cbv a lot of instances, but I don't see
-            why it should be struggling so much.*)
+          Time cbv [addMetricInstructions]. simpl.
+          cbv [addMetricLoads]. simpl.
+          cbv [addMetricJumps]. simpl.
+          cbv [jumps]. simpl. cbv [withJumps]. simpl.
+          cbv [withInstructions instructions]. simpl.
+          cbv [withLoads loads]. simpl.
+          destruct MC. destruct mc0.
+          clear H5. solve_MetricLog.
           
         }
       }
@@ -195,7 +191,7 @@ Proof.
           set (word.unsigned x0) in *. (* WHY does blia need this? *)
           Z.div_mod_to_equations; blia. }
         { (* invariant preserved *)
-          rewrite H3; clear H3. rename H0 into Hbit.
+          rewrite H4; clear H4. rename H1 into Hbit.
           change (1+1) with 2 in *.
           epose proof (Z.div_mod _ 2 ltac:(discriminate)) as Heq; rewrite Hbit in Heq.
           rewrite Heq at 2; clear Hbit Heq.
@@ -207,30 +203,36 @@ Proof.
           rewrite Z.mul_mod_idemp_r by discriminate.
           f_equal; ring. }
         { (* metrics correct *)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H4.
-          applyAddMetrics H4.
-          rewrite msb_shift in H4 by blia.
-          rewrite MetricArith.mul_sub_distr_r in H4.
-          rewrite <- MetricArith.add_sub_swap in H4.
-          rewrite <- MetricArith.le_add_le_sub_r in H4.
+          cbn [addMetricLoads withLoads instructions stores loads jumps] in H5.
+          applyAddMetrics H5.
+          rewrite msb_shift in H5 by blia.
+          rewrite MetricArith.mul_sub_distr_r in H5.
+          rewrite <- MetricArith.add_sub_swap in H5.
+          rewrite <- MetricArith.le_add_le_sub_r in H5.
           eapply MetricArith.le_trans.
-          2: exact H4.
+          2: exact H5.
           unfold iterCost.
-          solve_MetricLog.
+           cbv [addMetricInstructions]. simpl.
+          cbv [addMetricLoads]. simpl.
+          cbv [addMetricJumps]. simpl.
+          cbv [jumps]. simpl. cbv [withJumps]. simpl.
+          cbv [withInstructions instructions]. simpl.
+          cbv [withLoads loads]. simpl.
+          destruct MC. destruct mc0.
+          clear H5. solve_MetricLog.
         }
       }
     }
     { (* postcondition *)
-      rewrite H, Z.pow_0_r, Z.mul_1_r, word.wrap_unsigned.
+      rewrite H0, Z.pow_0_r, Z.mul_1_r, word.wrap_unsigned.
       repeat match goal with
              | |- _ /\ _ => split
              | |- _ = _ => reflexivity
              end.
       unfold msb, iterCost, endCost.
-      subst mc'.
-      solve_MetricLog.
+      subst mc'. solve_MetricLog.
     }
-  }
+}
 
   repeat straightline.
   repeat match goal with
@@ -239,7 +241,8 @@ Proof.
          | |- exists _, _ => letexists
          | _ => t
          end.
-  1: setoid_rewrite H1; setoid_rewrite Z.mul_1_l; trivial.
+
+  1: { setoid_rewrite H2; setoid_rewrite Z.mul_1_l; trivial. }
 
   unfold initCost, iterCost, endCost in *.
   solve_MetricLog.
