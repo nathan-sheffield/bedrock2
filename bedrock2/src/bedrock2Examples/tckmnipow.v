@@ -161,10 +161,8 @@ Proof.
           rewrite ?Z.pow_twice_r, ?Z.pow_1_r, ?Z.pow_mul_l.
           rewrite Z.mul_mod_idemp_r by discriminate.
           f_equal; ring. }
-        { (* metrics correct *)
-          (*Andy had this cbn here, but I don't think it does anything*)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H5.
-          applyAddMetrics H5.
+        { 
+          destruct MC; destruct mc0; applyAddMetrics H5.
           rewrite msb_shift in H5 by blia.
           rewrite MetricArith.mul_sub_distr_r in H5.
           rewrite <- MetricArith.add_sub_swap in H5.
@@ -172,17 +170,7 @@ Proof.
           eapply MetricArith.le_trans.
           2: exact H5.
           unfold iterCost.
-
-
-          Time cbv [addMetricInstructions]. simpl.
-          cbv [addMetricLoads]. simpl.
-          cbv [addMetricJumps]. simpl.
-          cbv [jumps]. simpl. cbv [withJumps]. simpl.
-          cbv [withInstructions instructions]. simpl.
-          cbv [withLoads loads]. simpl.
-          destruct MC. destruct mc0.
-          clear H5. solve_MetricLog.
-          
+          solve_MetricLog.
         }
       }
       {
@@ -203,8 +191,7 @@ Proof.
           rewrite Z.mul_mod_idemp_r by discriminate.
           f_equal; ring. }
         { (* metrics correct *)
-          cbn [addMetricLoads withLoads instructions stores loads jumps] in H5.
-          applyAddMetrics H5.
+          destruct MC; destruct mc0; applyAddMetrics H5.
           rewrite msb_shift in H5 by blia.
           rewrite MetricArith.mul_sub_distr_r in H5.
           rewrite <- MetricArith.add_sub_swap in H5.
@@ -212,14 +199,7 @@ Proof.
           eapply MetricArith.le_trans.
           2: exact H5.
           unfold iterCost.
-           cbv [addMetricInstructions]. simpl.
-          cbv [addMetricLoads]. simpl.
-          cbv [addMetricJumps]. simpl.
-          cbv [jumps]. simpl. cbv [withJumps]. simpl.
-          cbv [withInstructions instructions]. simpl.
-          cbv [withLoads loads]. simpl.
-          destruct MC. destruct mc0.
-          clear H5. solve_MetricLog.
+          solve_MetricLog.
         }
       }
     }
