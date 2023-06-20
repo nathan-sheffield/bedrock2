@@ -141,6 +141,17 @@ Lemma applyAddStores n a b c d : addMetricStores n {| instructions := a; stores 
 Lemma applyAddLoads n a b c d : addMetricLoads n {| instructions := a; stores := b; loads := c; jumps := d |} = {| instructions := a; stores := b; loads := c+n; jumps := d |}. Proof. auto. Qed.
 Lemma applyAddJumps n a b c d : addMetricJumps n {| instructions := a; stores := b; loads := c; jumps := d |} = {| instructions := a; stores := b; loads := c; jumps := d+n |}. Proof. auto. Qed.
 
+Ltac applyAddMetricsGoal := (
+  repeat (
+    try rewrite applyAddInstructions;
+    try rewrite applyAddStores;
+    try rewrite applyAddLoads;
+    try rewrite applyAddJumps 
+  );
+  repeat rewrite <- Z.add_assoc;
+  cbn [Z.add Pos.add Pos.succ]
+                         ).
+
 Ltac applyAddMetrics H := (
   repeat (
     try rewrite applyAddInstructions in H;
