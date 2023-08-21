@@ -36,10 +36,10 @@ Section WithParameters.
          constants [Properties.word_cst]).
 
   Local Instance spec_of_silly1 : spec_of "silly1" := fun functions =>
-      forall t m a bs R, Z.of_nat (length bs) = 32 ->
+      forall t m mc a bs R, Z.of_nat (length bs) = 32 ->
       (sep (eq (map.of_list_word_at a bs)) R) m ->
-      WeakestPrecondition.call functions "silly1" t m [a]
-      (fun T M rets => True).
+      WeakestPrecondition.call functions "silly1" t m [a] mc
+      (fun T M MC rets => True).
 
   Ltac ring_simplify_unsigned_goal :=
     match goal with
@@ -467,18 +467,34 @@ Ltac simpl_lengths_step :=
   end.
 Ltac simpl_lengths := repeat simpl_lengths_step.
 
+Lemma tuple_goal_stuff (A B: Type) (F : A -> B -> Prop) : (exists a b, F a b) <-> (exists pair, (fun t => F (fst t) (snd t)) pair).
+Proof.
+  split.
+  - intros [a [b H]]; exists (a, b); auto.
+  - intros [[a b] H]; eauto.
+Qed.
+
+    From coqutil.Tactics Require Import Tactics letexists eabstract rdelta reference_to_string ident_of_string.
+Local Open Scope string_scope.
+Require Import bedrock2.WeakestPrecondition.
+Require Import bedrock2.WeakestPreconditionProperties.
+
+Lemma fst_snd_pair_ez (A B : Type) (pair : prod A B) : (fst pair, snd pair) = pair.
+  Proof. destruct pair. reflexivity. Qed.
+
   Lemma silly1_ok : program_logic_goal_for_function! silly1.
   Proof.
+    repeat straightline. rewrite tuple_goal_stuff. setoid_rewrite fst_snd_pair_ez.
+    apply WeakestPreconditionProperties.dexpr_expr.
     repeat (straightline || apply WeakestPreconditionProperties.dexpr_expr).
-
-    eexists ?[v].
-
+        eexists ?[v].
     on_left eapply Z_uncurried_load_four_bytes_of_sep_at.
 
     pose proof List__splitZ_spec_n bs 20 _ H ltac:(blia).
     flatten; simpl_lengths.
     set_evars; rewrite H1 in *; subst_evars.
     seprewrite_in_by sep_eq_of_list_word_at_app H0
+                                                
       ltac:(trivial || blia); simpl_lengths.
 
     pose proof List__splitZ_spec_n _ 16 _ H2 ltac:(blia);
@@ -491,8 +507,8 @@ Ltac simpl_lengths := repeat simpl_lengths_step.
     match goal with |- context[?x] => change x with ys0 end.
 
     split; [ trivial | ].
-
-    repeat straightline. (* this inlines too many lets *)
+   
+    repeat straightline.
 
     (* store4(a + $14, b); *)
 
@@ -502,7 +518,7 @@ Ltac simpl_lengths := repeat simpl_lengths_step.
     seprewrite_in_by @list_word_at_app_of_adjacent_eq H0 ltac:(
       simpl_lengths; rewrite ?word.word_sub_add_l_same_l, ?word.unsigned_of_Z; trivial; clear;blia).
     repeat seprewrite_in_by @list_word_at_app_of_adjacent_eq H0 ltac:(
-      rewrite ?app_length; wordcstexpr_tac; simpl_lengths; blia).
+                                                                        rewrite ?app_length; wordcstexpr_tac; simpl_lengths; blia).
 
     Tactics.rapply (fun addr oldvalue value R m post H => Scalars.store_four_of_sep addr oldvalue value R m post (proj1 H) (proj2 H)).
 
@@ -515,7 +531,6 @@ Ltac simpl_lengths := repeat simpl_lengths_step.
 
     (* frame calculation again, unclear what to subst before split_bytes_base_addr *)
     (* maybe make a rewrite that follows lets *)
-
 
     {
     eassert (Z.of_nat (length ((xs0 ++ ys0) ++ ys)) = _). {

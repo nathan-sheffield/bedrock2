@@ -36,23 +36,23 @@ Section WithParameters.
 
   Instance spec_of_swap : spec_of "swap" :=
     fnspec! "swap" a_addr b_addr / a b R,
-    { requires t m := m =* scalar a_addr a * scalar b_addr b * R;
-      ensures T M :=  M =* scalar a_addr b * scalar b_addr a * R /\ T = t }.
+    { requires t m mc := m =* scalar a_addr a * scalar b_addr b * R;
+      ensures T M MC :=  M =* scalar a_addr b * scalar b_addr a * R /\ T = t }.
 
   Lemma swap_ok : program_logic_goal_for_function! swap.
   Proof. repeat straightline; eauto. Qed.
 
   Instance spec_of_bad_swap : spec_of "bad_swap" :=
     fnspec! "bad_swap" a_addr b_addr / a b R,
-    { requires t m := m =* scalar a_addr a * scalar b_addr b * R;
-      ensures T M :=  M =* scalar a_addr b * scalar b_addr a * R /\ T = t }.
+    { requires t m mc := m =* scalar a_addr a * scalar b_addr b * R;
+      ensures T M MC :=  M =* scalar a_addr b * scalar b_addr a * R /\ T = t }.
   Lemma bad_swap_ok : program_logic_goal_for_function! bad_swap.
   Proof. repeat straightline; eauto. Abort.
 
   Definition spec_of_swap_same : spec_of "swap" :=
     fnspec! "swap" a_addr b_addr / a R,
-    { requires t m := m =* scalar a_addr a * R /\ b_addr = a_addr;
-      ensures T M :=  M =* scalar a_addr a * R /\ T = t }.
+    { requires t m mc := m =* scalar a_addr a * R /\ b_addr = a_addr;
+      ensures T M MC :=  M =* scalar a_addr a * R /\ T = t }.
 
   Lemma swap_same_ok :
     let spec_of_swap := spec_of_swap_same in
@@ -61,11 +61,11 @@ Section WithParameters.
 
   Instance spec_of_swap_swap : spec_of "swap_swap" :=
     fnspec! "swap_swap" a_addr b_addr / a b R,
-    { requires t m := m =* scalar a_addr a * scalar b_addr b * R;
-      ensures T M :=  M =* scalar a_addr a * scalar b_addr b * R /\ T = t}.
+    { requires t m mc := m =* scalar a_addr a * scalar b_addr b * R;
+      ensures T M MC :=  M =* scalar a_addr a * scalar b_addr b * R /\ T = t}.
 
   Lemma swap_swap_ok : program_logic_goal_for_function! swap_swap.
-  Proof. repeat (straightline || straightline_call); eauto. Qed.
+  Proof. repeat (straightline || straightline_call); eauto.  Qed.
 
   Lemma link_swap_swap_swap_swap : spec_of_swap_swap &[,swap_swap; swap].
   Proof. eauto using swap_swap_ok, swap_ok. Qed.

@@ -313,7 +313,19 @@ Ltac straightline :=
                         split; [solve [repeat straightline]|]
   | |- Markers.unique (exists x, Markers.split (?P /\ ?Q)) =>
     let x := fresh x in refine (let x := _ in ex_intro (fun x => P /\ Q) x _);
-                        split; [solve [repeat straightline]|]
+                        split; [solve [repeat straightline]|] 
+  | |- exists x, exists y, ?P /\ ?Q =>
+    let x := fresh x in refine (let x := _ in ex_intro (fun x => exists y, _ /\ _) x _);
+    let y := fresh y in refine (let y := _ in ex_intro (fun y => _ /\ _) y _);
+                       split; [solve [repeat straightline]|]
+  | |- exists x, exists y, Markers.split(?P /\ ?Q) =>
+    let x := fresh x in refine (let x := _ in ex_intro (fun x => exists y, _ /\ _) x _);
+    let y := fresh y in refine (let y := _ in ex_intro (fun y => _ /\ _) y _);
+                       split; [solve [repeat straightline]|]
+  | |- Markers.unique (exists x, exists y, Markers.split (?P /\ ?Q)) =>
+    let x := fresh x in refine (let x := _ in ex_intro (fun x => exists y, _ /\ _) x _);
+    let y := fresh y in refine (let y := _ in ex_intro (fun y => _ /\ _) y _);
+                       split; [solve [repeat straightline]|]     
   | |- Markers.unique (Markers.left ?G) =>
     change G;
     unshelve (idtac; repeat match goal with
@@ -338,12 +350,12 @@ Ltac straightline :=
 (* TODO: once we can automatically prove some calls, include the success-only version of this in [straightline] *)
 Ltac straightline_call :=
   lazymatch goal with
-  | |- WeakestPrecondition.call ?functions ?callee _ _ _ _ =>
+  | |- WeakestPrecondition.call ?functions ?callee _ _ _ _ _ =>
     let callee_spec := lazymatch constr:(_:spec_of callee) with ?s => s end in
     let Hcall := lazymatch goal with H: callee_spec functions |- _ => H end in
     eapply WeakestPreconditionProperties.Proper_call; cycle -1;
       [ eapply Hcall | try eabstract (solve [Morphisms.solve_proper]) .. ];
-      [ .. | intros ? ? ? ?]
+      [ .. | intros ? ? ? ? ?]
   end.
 
 Ltac current_trace_mem_locals :=
