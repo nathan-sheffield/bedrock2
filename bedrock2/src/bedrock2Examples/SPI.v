@@ -62,15 +62,15 @@ Section WithParameters.
       (exists a v, h = ("ld", a, v) /\ l = (map.empty, "MMIOREAD", [a], (map.empty, [v]))).
   Definition mmio_trace_abstraction_relation := List.Forall2 mmio_event_abstraction_relation.
 
-  Global Instance spec_of_spi_write : spec_of "spi_write" := fun functions => forall t m b,
+  Global Instance spec_of_spi_write : spec_of "spi_write" := fun functions => forall t m b mc,
     word.unsigned b < 2 ^ 8 ->
-    WeakestPrecondition.call functions "spi_write" t m [b] (fun T M RETS =>
+    WeakestPrecondition.call functions "spi_write" t m [b] mc  (fun T M RETS MC =>
       M = m /\ exists iol, T = t ;++ iol /\ exists ioh, mmio_trace_abstraction_relation ioh iol /\ exists err, RETS = [err] /\ Logic.or
         (((word.unsigned err <> 0) /\ lightbulb_spec.spi_write_full _ ^* ioh /\ Z.of_nat (length ioh) = patience))
         (word.unsigned err = 0 /\ lightbulb_spec.spi_write word (byte.of_Z (word.unsigned b)) ioh)).
 
-  Global Instance spec_of_spi_read : spec_of "spi_read" := fun functions => forall t m,
-    WeakestPrecondition.call functions "spi_read" t m [] (fun T M RETS =>
+  Global Instance spec_of_spi_read : spec_of "spi_read" := fun functions => forall t m mc,
+    WeakestPrecondition.call functions "spi_read" t m [] mc (fun T M RETS MC =>
       M = m /\ exists iol, T = t ;++ iol /\ exists ioh, mmio_trace_abstraction_relation ioh iol /\ exists (b: byte) (err : word), RETS = [word.of_Z (byte.unsigned b); err] /\ Logic.or
         (word.unsigned err <> 0 /\ lightbulb_spec.spi_read_empty _ ^* ioh /\ Z.of_nat (length ioh) = patience)
         (word.unsigned err = 0 /\ lightbulb_spec.spi_read word b ioh)).
@@ -92,7 +92,7 @@ Section WithParameters.
     rename H into Hb.
 
     (* WHY do theese parentheses matter? *)
-    refine ((atleastonce ["b"; "busy"; "i"] (fun v T M B BUSY I =>
+   refine ((atleastonce ["b"; "busy"; "i"] (fun v T M B BUSY I MC =>
        b = B /\ v = word.unsigned I /\ word.unsigned I <> 0 /\ M = m /\
        exists tl, T = tl++t /\
        exists th, mmio_trace_abstraction_relation th tl /\
@@ -107,10 +107,20 @@ Section WithParameters.
            List.repeat Datatypes.length
            HList.polymorphic_list.repeat HList.polymorphic_list.length
            PrimitivePair.pair._1 PrimitivePair.pair._2] in *.
+   
     { repeat straightline. }
     { eapply (Z.lt_wf 0). }
-    { eexists; split; repeat straightline.
-      exfalso. ZnWords. }
+    { eexists; eexists; split; repeat straightline.
+      { exfalso. ZnWords. }
+      repeat (split; trivial).
+      eexists; split.
+      { rewrite app_nil_l; trivial. }
+      eexists; split.
+      { constructor. }
+      split.
+      { constructor. }
+      subst i. rewrite word.unsigned_of_Z. exact eq_refl. 
+    }
     { repeat (split; trivial; []).
       subst i. rewrite word.unsigned_of_Z.
       split.
@@ -130,7 +140,7 @@ Section WithParameters.
       cbv [isMMIOAddr addr].
       ZnWords. }
     repeat straightline.
-    letexists. split.
+    letexists. letexists. split.
     { repeat straightline. }
     split; intros.
     { (* CASE if-condition was true (word.unsigned v0 <> 0), i.e. NOP, loop exit depends on whether timeout *)
@@ -154,7 +164,7 @@ Section WithParameters.
         { ZnWordsL. } }
         { ZnWords. } }
     { (* SUBCASE loop condition was false (exit loop because of timeout *)
-      letexists; split; [solve[repeat straightline]|split]; repeat straightline; try contradiction.
+      letexists; letexists; split; [solve[repeat straightline]|split]; repeat straightline; try contradiction.
       subst t0.
       eexists (_ ;++ cons _ nil); split.
       { rewrite <-app_assoc; cbn [app]; f_equal. }
@@ -173,9 +183,9 @@ Section WithParameters.
     }
     (* CASE if-condition was false (word.unsigned v0 = 0), i.e. we'll set i=i^i and exit loop *)
     repeat straightline.
-    { subst i.
+    { subst i br.
       rewrite Properties.word.unsigned_xor_nowrap in *; rewrite Z.lxor_nilpotent in *; contradiction. }
-    (* evaluate condition then split if *) letexists; split; [solve[repeat straightline]|split].
+    (* evaluate condition then split if *) letexists; letexists; split; [solve[repeat straightline]|split].
     1:contradiction.
     repeat straightline.
     eapply WeakestPreconditionProperties.interact_nomem; repeat straightline.
@@ -209,16 +219,16 @@ Section WithParameters.
 
   Local Ltac split_if :=
     lazymatch goal with
-      |- WeakestPrecondition.cmd _ ?c _ _ _ ?post =>
+      |- WeakestPrecondition.cmd _ ?c _ _ _ _ ?post =>
       let c := eval hnf in c in
           lazymatch c with
-          | cmd.cond _ _ _ => letexists; split; [solve[repeat straightline]|split]
+          | cmd.cond _ _ _ => letexists; letexists; split; [solve[repeat straightline]|split]
           end
     end.
 
   Lemma spi_read_ok : program_logic_goal_for_function! spi_read.
     repeat straightline.
-    refine ((atleastonce ["b"; "busy"; "i"] (fun v T M B BUSY I =>
+    refine ((atleastonce ["b"; "busy"; "i"] (fun v T M B BUSY I MC =>
        v = word.unsigned I /\ word.unsigned I <> 0 /\ M = m /\
        B = word.of_Z (byte.unsigned (byte.of_Z (word.unsigned B))) /\
        exists tl, T = tl++t /\
@@ -246,9 +256,17 @@ Section WithParameters.
       split; trivial.
       eexists nil; split; trivial.
       eexists nil; split; try split; solve [constructor]. }
+    {
+      subst i. repeat (split; trivial).
+      { ZnWords. }
+      { subst b; rewrite byte.unsigned_of_Z; cbv [byte.wrap];
+          rewrite Z.mod_small; rewrite word.unsigned_of_Z; ZnWords. }
+      { eexists nil; split; trivial.  rewrite word.unsigned_of_Z. eexists nil; split; try split; solve [constructor]. }
+    }
     { eapply WeakestPreconditionProperties.interact_nomem; repeat straightline.
       letexists; split; [exact eq_refl|]; split; [split; trivial|].
-    { cbv [isMMIOAddr]. ZnWords. }
+      { cbv [isMMIOAddr]. ZnWords. }
+      
       repeat ((split; trivial; []) || straightline || split_if).
       {
         letexists. split; split.
@@ -313,7 +331,7 @@ Section WithParameters.
           eexists (x2 ;++ cons _ nil); split; cbn [app]; eauto.
           eexists. split.
           { econstructor; try eassumption; right; eauto. }
-          subst i.
+          subst i br.
           rewrite Properties.word.unsigned_xor_nowrap, Z.lxor_nilpotent in H1; contradiction. } }
       { eexists _; split.
         { repeat straightline. }
@@ -361,28 +379,25 @@ Section WithParameters.
           trivial. } } }
   Qed.
 
-  Global Instance spec_of_spi_xchg : spec_of "spi_xchg" := fun functions => forall t m b_out,
+  Global Instance spec_of_spi_xchg : spec_of "spi_xchg" := fun functions => forall t m b_out mc,
     word.unsigned b_out < 2 ^ 8 ->
-    WeakestPrecondition.call functions "spi_xchg" t m [b_out] (fun T M RETS =>
+    WeakestPrecondition.call functions "spi_xchg" t m [b_out] mc (fun T M RETS MC =>
       M = m /\ exists iol, T = t ;++ iol /\ exists ioh, mmio_trace_abstraction_relation ioh iol /\ exists (b_in:byte) (err : word), RETS = [word.of_Z (byte.unsigned b_in); err] /\ Logic.or
         (word.unsigned err <> 0 /\ (any +++ lightbulb_spec.spi_timeout _) ioh)
         (word.unsigned err = 0 /\ lightbulb_spec.spi_xchg word (byte.of_Z (word.unsigned b_out)) b_in ioh)).
 
   Lemma spi_xchg_ok : program_logic_goal_for_function! spi_xchg.
   Proof.
-    repeat (
-    match goal with
-    | |- ?F ?a ?b ?c =>
+      repeat (match goal with
+    | |- ?F ?a ?b ?c ?d =>
         match F with WeakestPrecondition.get => idtac end;
         let f := (eval cbv beta delta [WeakestPrecondition.get] in F) in
-        change (f a b c); cbv beta
+        change (f a b c d); cbv beta
       | H :  _ /\ _ \/ ?Y /\ _, G : not ?X |- _ =>
           constr_eq X Y; let Z := fresh in destruct H as [|[Z ?]]; [|case (G Z)]
       | H :  not ?Y /\ _ \/ _ /\ _, G : ?X |- _ =>
           constr_eq X Y; let Z := fresh in destruct H as [[Z ?]|]; [case (Z G)|]
-    end ||
-
-    straightline || straightline_call || split_if || refine (conj _ _) || eauto).
+              end || straightline || straightline_call || split_if || refine (conj _ _) || eauto).
 
   { eexists. split.
     { exact eq_refl. }

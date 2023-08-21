@@ -335,7 +335,8 @@ Section Loops.
     eapply Hexit.
   Qed. 
          *) Admitted.
-    
+
+  (*I don't think these statements are quite right*)
   Lemma atleastonce
     {e c t l mc} {m : mem}
     (variables : list String.string)
